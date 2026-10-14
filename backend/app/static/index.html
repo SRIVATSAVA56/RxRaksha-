@@ -33,10 +33,12 @@ header{background:var(--card); border-bottom:1px solid var(--border); position:s
 .disc{background:#FFF8E6; color:#6B4E00; font-size:13px; text-align:center; padding:6px 12px; border-bottom:1px solid #EFE3B8}
 
 /* ---------- steps ---------- */
-.steps{display:flex; gap:4px; justify-content:center; padding:16px 0 0; font-size:13px; color:var(--muted)}
-.steps span{padding:5px 14px; border-radius:999px; border:1px solid var(--border); background:var(--card)}
+.steps{display:flex; gap:6px; justify-content:center; padding:16px 0 0; font-size:13px; color:var(--muted)}
+.steps span{padding:6px 16px; border-radius:999px; border:1px solid var(--border); background:var(--card); cursor:pointer; user-select:none; transition:all .15s}
+.steps span:hover{border-color:var(--primary); color:var(--primary)}
 .steps span.on{background:var(--primary); color:#fff; border-color:var(--primary); font-weight:600}
-.steps span.done{color:var(--primary); border-color:var(--primary)}
+.steps span.on:hover{color:#fff}
+.steps span.done{color:var(--primary); border-color:var(--primary); font-weight:500}
 
 /* ---------- hero (login-remake) ---------- */
 .hero{min-height:calc(100vh - 100px); display:flex; align-items:center; justify-content:center; padding:40px 20px;
@@ -287,9 +289,30 @@ const GC={Safe:"#0F766E",Caution:"#B54708",Warning:"#B54708","High Risk":"#B4231
 let demoMode=false, lastReport=null;
 
 /* nav */
-function show(id){$$(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
+const STAGES = ["scr-patient", "scr-rx", "scr-confirm", "scr-results"];
+
+function updateSteps(currentStageId) {
+  const currentIdx = STAGES.indexOf(currentStageId);
+  if (currentIdx === -1) return;
+  $$(".steps").forEach(stepsBar => {
+    const spans = stepsBar.querySelectorAll("span");
+    spans.forEach((span, idx) => {
+      span.className = "";
+      if (idx === currentIdx) {
+        span.className = "on";
+      } else if (idx < currentIdx) {
+        span.className = "done";
+      }
+    });
+  });
+}
+
+function show(id){
+  $$(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
   $$("[data-nav]").forEach(b=>b.classList.toggle("on",(id==="scr-home")==(b.dataset.nav==="home")));
-  window.scrollTo(0,0)}
+  updateSteps(id);
+  window.scrollTo(0,0);
+}
 $$("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 $$("[data-nav]").forEach(b=>b.onclick=()=>{
   if(b.dataset.nav==="workspace" && !demoMode && !$("#pAge").value && !$("#rxLines").value) clearInputs();
@@ -363,13 +386,59 @@ fetch("/health").then(r=>r.json()).then(h=>$("#kbPill").textContent=`KB: ${h.dru
 
 /* stage 2 -> 3 : call /analyze once, show normalization, then results */
 let pending=null;
-$("#toConfirm").onclick=async()=>{
+
+async function goToConfirm(){
   const lines=$("#rxLines").value.split("\n").map(s=>s.trim()).filter(Boolean);
-  if(!lines.length){alert("Enter at least one medicine line.");return}
-  $("#toConfirm").textContent="Normalizing…";
-  try{pending=await api(lines);renderConfirm(pending);show("scr-confirm")}
-  catch(e){alert("Analysis failed: "+e.message)}
-  finally{$("#toConfirm").textContent="Review & normalize →"}};
+  if(!lines.length){
+    alert("Please enter at least one prescription line first.");
+    show("scr-rx");
+    $("#rxLines").focus();
+    return;
+  }
+  if(!pending){
+    $("#toConfirm").textContent="Normalizing…";
+    try{
+      pending=await api(lines);
+    }catch(e){
+      alert("Analysis failed: "+e.message);
+      show("scr-rx");
+      return;
+    }finally{
+      $("#toConfirm").textContent="Review & normalize →";
+    }
+  }
+  renderConfirm(pending);
+  show("scr-confirm");
+}
+
+async function goToResults(){
+  const lines=$("#rxLines").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){
+    alert("Please enter at least one prescription line first.");
+    show("scr-rx");
+    $("#rxLines").focus();
+    return;
+  }
+  if(!pending){
+    $("#toConfirm").textContent="Analyzing…";
+    $("#runAnalysis").textContent="Analyzing…";
+    try{
+      pending=await api(lines);
+      renderConfirm(pending);
+    }catch(e){
+      alert("Analysis failed: "+e.message);
+      show("scr-rx");
+      return;
+    }finally{
+      $("#toConfirm").textContent="Review & normalize →";
+      $("#runAnalysis").textContent="Run safety analysis →";
+    }
+  }
+  renderResults(pending);
+  show("scr-results");
+}
+
+$("#toConfirm").onclick=()=>goToConfirm();
 
 async function api(lines){
   const r=await fetch("/analyze",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -388,7 +457,25 @@ function renderConfirm(rep){
       tb.insertAdjacentHTML("beforeend",`<tr class="${i.needs_review?"unres":""}"><td>${esc(ln.raw)}</td><td>${esc(i.generic)}</td><td>${i.strength_mg??"—"} mg</td><td>${i.daily_mg??"—"} mg/day</td><td>${esc(i.match_type)}</td><td>${t}</td></tr>`)})});
   $("#confWarn").innerHTML=unres?`<div class="warn">⚠ <b>${unres} item(s) unresolved or needing review.</b> Results will be marked incomplete — they can never appear as a clean pass.</div>`:"";}
 
-$("#runAnalysis").onclick=()=>{renderResults(pending);show("scr-results")};
+$("#runAnalysis").onclick=()=>goToResults();
+
+$$(".steps").forEach(bar=>{
+  const spans=bar.querySelectorAll("span");
+  spans.forEach((span,idx)=>{
+    span.onclick=()=>{
+      if(idx===0) show("scr-patient");
+      else if(idx===1) show("scr-rx");
+      else if(idx===2) goToConfirm();
+      else if(idx===3) goToResults();
+    };
+  });
+});
+
+$("#rxLines").addEventListener("input",()=>{ pending=null; });
+$("#pAge").addEventListener("input",()=>{ pending=null; });
+$("#pWt").addEventListener("input",()=>{ pending=null; });
+$("#pAllergy").addEventListener("input",()=>{ pending=null; });
+$$(".seg3").forEach(g=>g.addEventListener("click",()=>{ pending=null; }));
 
 /* results */
 function renderResults(r){lastReport=r;
