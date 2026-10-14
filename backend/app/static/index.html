@@ -185,10 +185,10 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <div class="panel">
         <h3>Details</h3>
         <div class="row3">
-          <div><label>Age</label><input id="pAge" type="text" placeholder="e.g. 58 or 58y"></div>
-          <div><label>Weight (kg)</label><input id="pWt" type="text" placeholder="e.g. 72 or 72kg"></div>
+          <div><label>Age</label><input id="pAge" type="text" placeholder="e.g. 58"></div>
+          <div><label>Weight (kg)</label><input id="pWt" type="text" placeholder="e.g. 72"></div>
           <div><label>Gender</label>
-            <div class="seg3" id="pGender"><button type="button" class="on">Unknown</button><button type="button">F</button><button type="button">M</button><button type="button">Other</button></div></div>
+            <div class="seg3" id="pGender"><button type="button">F</button><button type="button">M</button><button type="button">Other</button></div></div>
         </div>
         <label>Allergies (comma separated)</label>
         <input id="pAllergy" placeholder="e.g. penicillin, sulfa">
@@ -206,7 +206,7 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
         <button type="button" class="addrow" id="addMed">+ Add medicine</button>
       </div>
     </div>
-    <div class="foot"><span></span><button class="btn" data-go="scr-rx">Continue →</button></div>
+    <div class="foot"><span></span><button type="button" class="btn" id="toRx">Continue →</button></div>
   </div>
 </section>
 
@@ -233,7 +233,7 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <div id="ocrStatus" style="display:none; margin-bottom:12px"></div>
 
       <label style="font-size:13px; font-weight:600; margin-bottom:6px">Prescription lines (edit or type directly):</label>
-      <textarea id="rxLines" rows="6" placeholder="Warf 5mg OD&#10;Crocin 500mg 1-0-1&#10;Dolo-650 1-0-1"></textarea>
+      <textarea id="rxLines" rows="6" placeholder="Enter medicine lines here (one per line, e.g. Warf 5mg OD)"></textarea>
     </div>
     <div class="foot" style="max-width:720px">
       <button class="btn ghost" data-go="scr-patient">← Back</button>
@@ -350,7 +350,7 @@ $("#addMed").onclick=()=>medRow();
 function clearInputs(){
   $("#pAge").value="";
   $("#pWt").value="";
-  setSeg("pGender",0);
+  $$("#pGender button").forEach(b=>b.classList.remove("on"));
   $("#pAllergy").value="";
   setSeg("pAllergyState",0);
   setSeg("pKidney",0);
@@ -362,6 +362,36 @@ function clearInputs(){
 clearInputs();
 function setSeg(id,i){$$("#"+id+" button").forEach((b,j)=>b.classList.toggle("on",i===j))}
 function segVal(id){return $$("#"+id+" button").findIndex(b=>b.classList.contains("on"))}
+
+function validatePatientStep(silent=false){
+  const age=$("#pAge").value.trim();
+  const wt=$("#pWt").value.trim();
+  const gIdx=segVal("pGender");
+  if(!age){
+    if(!silent){
+      alert("Please enter the patient's Age before proceeding.");
+      show("scr-patient");
+      $("#pAge").focus();
+    }
+    return false;
+  }
+  if(!wt){
+    if(!silent){
+      alert("Please enter the patient's Weight before proceeding.");
+      show("scr-patient");
+      $("#pWt").focus();
+    }
+    return false;
+  }
+  if(gIdx===-1){
+    if(!silent){
+      alert("Please select the patient's Gender before proceeding.");
+      show("scr-patient");
+    }
+    return false;
+  }
+  return true;
+}
 
 /* patient -> payload */
 function patient(){
@@ -410,6 +440,7 @@ fetch("/health").then(r=>r.json()).then(h=>$("#kbPill").textContent=`KB: ${h.dru
 let pending=null;
 
 async function goToConfirm(){
+  if(!validatePatientStep()) return;
   const {allLines}=getAllLines();
   if(!allLines.length){
     alert("Please enter at least one medicine in Current Medicines or Proposed Medicines.");
@@ -434,6 +465,7 @@ async function goToConfirm(){
 }
 
 async function goToResults(){
+  if(!validatePatientStep()) return;
   const {allLines}=getAllLines();
   if(!allLines.length){
     alert("Please enter at least one medicine in Current Medicines or Proposed Medicines.");
@@ -487,12 +519,15 @@ $$(".steps").forEach(bar=>{
   spans.forEach((span,idx)=>{
     span.onclick=()=>{
       if(idx===0) show("scr-patient");
-      else if(idx===1) show("scr-rx");
-      else if(idx===2) goToConfirm();
-      else if(idx===3) goToResults();
+      else if(idx===1){ if(validatePatientStep()) show("scr-rx"); }
+      else if(idx===2){ if(validatePatientStep()) goToConfirm(); }
+      else if(idx===3){ if(validatePatientStep()) goToResults(); }
     };
   });
 });
+
+const toRxBtn=$("#toRx");
+if(toRxBtn) toRxBtn.onclick=()=>{ if(validatePatientStep()) show("scr-rx"); };
 
 $("#rxLines").addEventListener("input",()=>{ pending=null; });
 $("#pAge").addEventListener("input",()=>{ pending=null; });
@@ -508,7 +543,7 @@ $("#pAllergy").addEventListener("input",()=>{
 $$(".seg3").forEach(g=>g.addEventListener("click",()=>{ pending=null; }));
 
 /* image upload / OCR */
-$("#navToScan").onclick=()=>show("scr-rx");
+$("#navToScan").onclick=()=>{ if(validatePatientStep()) show("scr-rx"); };
 
 const dropzone=$("#ocrDropzone"), fileInput=$("#rxImageInput"), ocrStatus=$("#ocrStatus");
 dropzone.onclick=()=>fileInput.click();
