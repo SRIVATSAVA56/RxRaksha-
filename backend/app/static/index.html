@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RxRaksha — Prescription Safety Report</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --text:#e2e8f0; --muted:#94a3b8;
+    --safe:#22c55e; --caution:#eab308; --warning:#f97316; --high:#ef4444; --critical:#dc2626;
+    --unknown:#64748b; --accent:#38bdf8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 22px;background:var(--panel);border-bottom:1px solid #334155;display:flex;align-items:center;gap:12px}
+  header h1{font-size:18px;margin:0;letter-spacing:.3px}
+  header .tag{font-size:11px;color:var(--muted);border:1px solid #334155;padding:2px 8px;border-radius:99px}
+  main{display:grid;grid-template-columns:420px 1fr;gap:16px;padding:16px;max-width:1300px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid #334155;border-radius:10px;padding:16px}
+  label{font-size:12px;color:var(--muted);display:block;margin:10px 0 4px}
+  textarea,input[type=text]{width:100%;background:var(--panel2);border:1px solid #334155;color:var(--text);
+    border-radius:8px;padding:9px;font:inherit}
+  textarea{min-height:150px;resize:vertical}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:120px}
+  .chk{display:flex;align-items:center;gap:6px;margin-top:14px;font-size:13px}
+  button{margin-top:14px;width:100%;padding:11px;background:var(--accent);color:#082f49;border:0;
+    border-radius:8px;font-weight:700;cursor:pointer;font-size:15px}
+  button:disabled{opacity:.5;cursor:wait}
+  /* report */
+  .gauge-wrap{display:flex;align-items:center;gap:20px}
+  .gauge{--v:100;--c:var(--safe);width:130px;height:130px;border-radius:50%;flex:none;
+    background:conic-gradient(var(--c) calc(var(--v)*1%), #334155 0);display:grid;place-items:center}
+  .gauge>div{width:100px;height:100px;border-radius:50%;background:var(--panel);display:grid;place-items:center;text-align:center}
+  .gauge .num{font-size:30px;font-weight:800}
+  .gauge .of{font-size:10px;color:var(--muted)}
+  .band{font-size:20px;font-weight:800}
+  .action{color:var(--muted);font-size:13px;margin-top:4px}
+  .cap{font-size:12px;color:var(--caution);margin-top:6px}
+  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+  .badge{font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid #334155;background:var(--panel2)}
+  .badge.ok{color:var(--safe);border-color:var(--safe)}
+  .badge.skip{color:var(--unknown);border-color:var(--unknown)}
+  .badge.warn{color:var(--caution);border-color:var(--caution)}
+  .finding{margin-top:12px;border:1px solid #334155;border-left:5px solid var(--unknown);
+    border-radius:8px;background:var(--panel2);padding:12px}
+  .finding.major,.finding.contraindicated{border-left-color:var(--high)}
+  .finding.moderate{border-left-color:var(--caution)}
+  .finding.minor{border-left-color:var(--accent)}
+  .finding .head{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+  .finding .title{font-weight:700}
+  .sev{font-size:10px;font-weight:800;text-transform:uppercase;padding:2px 8px;border-radius:99px;white-space:nowrap}
+  .sev.major,.sev.contraindicated{background:#7f1d1d;color:#fecaca}
+  .sev.moderate{background:#713f12;color:#fde68a}
+  .sev.minor{background:#0c4a6e;color:#bae6fd}
+  .sev.unknown{background:#334155;color:#cbd5e1}
+  .mech{font-size:13px;color:var(--muted);margin-top:6px}
+  details{margin-top:8px;font-size:12.5px}
+  summary{cursor:pointer;color:var(--accent)}
+  .chain{margin:8px 0 0 4px;padding-left:14px;border-left:2px solid #334155}
+  .chain li{margin:4px 0;color:var(--text)}
+  .meta{font-size:11px;color:var(--muted);margin-top:6px}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #334155}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+  .review{color:var(--caution);font-weight:700}
+  .unmatched{color:var(--high);font-weight:700}
+  .ledger td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .neg{color:var(--high)} .zero{color:var(--muted)}
+  .summary-box{margin-top:12px;padding:12px;border-radius:8px;background:var(--panel2);
+    border:1px solid #334155;font-size:13.5px}
+  .ai{border:1px dashed var(--caution);margin-top:10px;padding:10px;border-radius:8px;font-size:13px}
+  .ai .who{font-size:11px;color:var(--caution)}
+  .disclaimer{margin-top:14px;font-size:11.5px;color:var(--muted);text-align:center}
+  .err{color:var(--high);font-size:13px;margin-top:10px;white-space:pre-wrap}
+  h3{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  @media (max-width:900px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>💊 RxRaksha</h1>
+  <span class="tag">prescription safety decision-support</span>
+  <span class="tag" id="kb"></span>
+</header>
+
+<main>
+  <!-- INPUT -->
+  <section class="card">
+    <h3>Prescription input</h3>
+    <label>Medicine lines (one per line)</label>
+    <textarea id="lines" spellcheck="false">Warf 5mg OD
+Crocin 500mg 1-0-1
+Dolo-650 1-0-1</textarea>
+
+    <div class="row">
+      <div>
+        <label>Allergies (comma separated)</label>
+        <input type="text" id="allergies" placeholder="penicillin, sulfa">
+      </div>
+    </div>
+    <div class="row">
+      <div class="chk"><input type="checkbox" id="kidney"><label for="kidney" style="margin:0">Kidney impairment</label></div>
+      <div class="chk"><input type="checkbox" id="liver"><label for="liver" style="margin:0">Liver impairment</label></div>
+    </div>
+    <button id="go">Analyze prescription</button>
+    <div class="err" id="err"></div>
+  </section>
+
+  <!-- REPORT -->
+  <section id="report" style="display:none">
+    <div class="card">
+      <div class="gauge-wrap">
+        <div class="gauge" id="gauge"><div>
+          <div><div class="num" id="score"></div><div class="of">/ 100</div></div>
+        </div></div>
+        <div>
+          <div class="band" id="band"></div>
+          <div class="action" id="action"></div>
+          <div class="cap" id="cap"></div>
+          <div class="badges" id="badges"></div>
+        </div>
+      </div>
+      <div class="summary-box" id="summary"></div>
+      <div class="ai" id="ai" style="display:none"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Findings</h3>
+      <div id="findings"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Normalized medicines</h3>
+      <table id="norm"><thead><tr>
+        <th>Line</th><th>Ingredient</th><th>Strength</th><th>Daily</th><th>Matched via</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Score breakdown</h3>
+      <table id="ledger" class="ledger"><thead><tr>
+        <th>Source</th><th>Detail</th><th>Δ score</th>
+      </tr></thead><tbody></tbody></table>
+      <div class="disclaimer" id="disclaimer"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const BAND_COLOR = {Safe:"var(--safe)",Caution:"var(--caution)",Warning:"var(--warning)",
+                    "High Risk":"var(--high)",Critical:"var(--critical)"};
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+fetch("/health").then(r=>r.json()).then(h=>{
+  $("kb").textContent = `KB: ${h.drugs} drugs · ${h.interactions} interactions`;
+}).catch(()=>{});
+
+$("go").onclick = async () => {
+  $("err").textContent = ""; $("go").disabled = true; $("go").textContent = "Analyzing…";
+  const payload = {
+    lines: $("lines").value.split("\n").map(s=>s.trim()).filter(Boolean),
+    patient: {
+      allergies: $("allergies").value.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean),
+      kidney_impairment: $("kidney").checked,
+      liver_impairment: $("liver").checked,
+    }
+  };
+  try {
+    const r = await fetch("/analyze",{method:"POST",headers:{"Content-Type":"application/json"},
+                                      body:JSON.stringify(payload)});
+    if(!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    render(await r.json());
+  } catch(e){ $("err").textContent = "Error: "+e.message; }
+  $("go").disabled = false; $("go").textContent = "Analyze prescription";
+};
+
+function render(d){
+  $("report").style.display = "block";
+  const color = BAND_COLOR[d.band] || "var(--unknown)";
+  const g = $("gauge"); g.style.setProperty("--v", d.score); g.style.setProperty("--c", color);
+  $("score").textContent = d.score;
+  $("band").textContent = d.band; $("band").style.color = color;
+  $("action").textContent = d.action;
+  $("cap").textContent = d.cap_applied ? "⛔ "+d.cap_applied : "";
+
+  // coverage badges
+  $("badges").innerHTML = d.coverage.checks.map(c=>{
+    if(c.ran) return `<span class="badge ok">✓ ${c.check}</span>`;
+    return `<span class="badge skip" title="${esc(c.reason||"")}">— ${c.check} (skipped)</span>`;
+  }).join("") +
+  (d.coverage.normalization.review? `<span class="badge warn">⚠ ${d.coverage.normalization.review} line(s) to review</span>`:"") +
+  (d.coverage.normalization.unmatched? `<span class="badge warn">⚠ ${d.coverage.normalization.unmatched} unmatched</span>`:"");
+
+  $("summary").textContent = d.summary;
+  const ai = $("ai");
+  if(d.ai_summary){ ai.style.display="block";
+    ai.innerHTML = `<div class="who">AI summary · verified by ${esc(d.ai_summary.verified_by)} · ${esc(d.ai_summary.method)}</div>${esc(d.ai_summary.text)}`;
+  } else ai.style.display = "none";
+
+  // findings
+  $("findings").innerHTML = d.findings.length ? d.findings.map(f=>`
+    <div class="finding ${f.severity}">
+      <div class="head"><span class="title">${esc(f.title)}</span>
+        <span class="sev ${f.severity}">${esc(f.severity)}</span></div>
+      <div class="mech">${esc(f.mechanism)}</div>
+      <details><summary>Reasoning chain (${f.reasoning_chain.length} steps)</summary>
+        <ol class="chain">${f.reasoning_chain.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+        <div class="meta">Source: ${esc(f.evidence_source)} · KB ${esc(f.kb_version)} · Rule ${esc(f.rule_id)}</div>
+      </details>
+    </div>`).join("") : `<div style="color:var(--safe);margin-top:8px">✓ No findings — all completed checks passed.</div>`;
+
+  // normalized table
+  $("norm").querySelector("tbody").innerHTML = d.normalized.lines.map(ln=>{
+    if(!ln.ingredients.length)
+      return `<tr><td>${esc(ln.raw)}</td><td class="unmatched" colspan="4">no match — manual entry needed</td></tr>`;
+    return ln.ingredients.map(i=>`<tr class="${ln.status!=="ok"?"review":""}">
+      <td>${esc(ln.raw)}</td><td>${esc(i.generic)}</td>
+      <td>${i.strength_mg??"?"} mg</td><td>${i.daily_mg!=null? i.daily_mg+" mg/day":"unknown"}</td>
+      <td>${esc(i.match_type)}${i.needs_review?" ⚠":""}</td></tr>`).join("");
+  }).join("");
+
+  // ledger
+  $("ledger").querySelector("tbody").innerHTML = d.score_ledger.map(l=>`<tr>
+    <td>${esc(l.source)}</td><td>${esc(l.detail)}</td>
+    <td class="${l.delta<0?"neg":"zero"}">${l.delta}</td></tr>`).join("");
+  $("disclaimer").textContent = d.disclaimer;
+}
+</script>
+</body>
+</html>

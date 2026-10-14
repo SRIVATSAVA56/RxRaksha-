@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+pillow
+pytesseract
+rapidfuzz
+python-oracledb
+httpx
+pytest

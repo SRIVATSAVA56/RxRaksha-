@@ -1,0 +1,15 @@
+[
+  {
+    "rule_id": "DOSE-PARACETAMOL-MAX",
+    "rule_key": "DOSE-PARACETAMOL-MAX",
+    "ingredient": "paracetamol",
+    "drug": "Paracetamol",
+    "max_daily_mg": 4000,
+    "max_daily_dose_mg": 4000,
+    "severity": "HIGH",
+    "rationale": "Total daily paracetamol intake above 4000 mg substantially increases the risk of severe liver injury.",
+    "effects": "Liver injury, which can be life-threatening in overdose.",
+    "source_ref": "HAND_CODED (verify)",
+    "human_verified": false
+  }
+]

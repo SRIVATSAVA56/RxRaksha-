@@ -1,0 +1,7 @@
+[
+  {"rule_id": "ALLERGY-001", "allergen": "penicillin", "ingredients": ["amoxicillin", "ampicillin", "cloxacillin", "piperacillin"], "severity": "major", "mechanism": "Penicillin-class allergy: cross-reactive beta-lactam antibiotics may trigger IgE-mediated hypersensitivity, urticaria, or anaphylaxis.", "source": "curated clinical rules"},
+  {"rule_id": "ALLERGY-002", "allergen": "sulfa", "ingredients": ["sulfamethoxazole", "sulfasalazine", "sulfadiazine"], "severity": "major", "mechanism": "Sulfonamide allergy: risk of hypersensitivity reactions including Stevens-Johnson syndrome in sensitized patients.", "source": "curated clinical rules"},
+  {"rule_id": "ALLERGY-003", "allergen": "nsaid", "ingredients": ["ibuprofen", "aceclofenac", "diclofenac", "aspirin", "naproxen"], "severity": "major", "mechanism": "NSAID hypersensitivity: risk of bronchospasm (aspirin-exacerbated respiratory disease) or urticaria in sensitized patients.", "source": "curated clinical rules"},
+  {"rule_id": "ALLERGY-004", "allergen": "aspirin", "ingredients": ["aspirin"], "severity": "major", "mechanism": "Aspirin allergy: direct hypersensitivity risk.", "source": "curated clinical rules"},
+  {"rule_id": "ALLERGY-005", "allergen": "cephalosporin", "ingredients": ["cephalexin", "cefixime", "ceftriaxone", "cefuroxime"], "severity": "moderate", "mechanism": "Cephalosporin allergy: hypersensitivity risk; ~2% cross-reactivity with penicillin allergy.", "source": "curated clinical rules"}
+]

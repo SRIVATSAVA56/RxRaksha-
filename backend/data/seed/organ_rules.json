@@ -1,0 +1,5 @@
+[
+  {"rule_id": "ORGAN-KIDNEY-001", "condition": "kidney", "ingredients": ["metformin", "ibuprofen", "aceclofenac", "diclofenac", "naproxen"], "severity": "major", "mechanism": "Renal impairment: NSAIDs reduce renal perfusion and can precipitate acute kidney injury; metformin carries lactic acidosis risk when eGFR is low.", "source": "curated clinical rules"},
+  {"rule_id": "ORGAN-LIVER-001", "condition": "liver", "ingredients": ["paracetamol", "atorvastatin", "methotrexate", "isoniazid"], "severity": "moderate", "mechanism": "Hepatic impairment: hepatotoxic agents accumulate or increase liver injury risk; paracetamol hepatotoxicity threshold is lowered in liver disease.", "source": "curated clinical rules"},
+  {"rule_id": "ORGAN-LIVER-002", "condition": "liver", "ingredients": ["alcohol"], "severity": "moderate", "mechanism": "Hepatic impairment: additional hepatic load.", "source": "curated clinical rules"}
+]

@@ -1,0 +1,12 @@
+[
+  {"alias": "Augmentin 625",  "components": [{"generic": "amoxicillin",   "strength_mg": 500}, {"generic": "clavulanic acid", "strength_mg": 125}]},
+  {"alias": "Augmentin 375",  "components": [{"generic": "amoxicillin",   "strength_mg": 250}, {"generic": "clavulanic acid", "strength_mg": 125}]},
+  {"alias": "Augmentin",      "components": [{"generic": "amoxicillin",   "strength_mg": 500}, {"generic": "clavulanic acid", "strength_mg": 125}]},
+  {"alias": "Amoxyclav 625",  "components": [{"generic": "amoxicillin",   "strength_mg": 500}, {"generic": "clavulanic acid", "strength_mg": 125}]},
+  {"alias": "Combiflam",      "components": [{"generic": "ibuprofen",     "strength_mg": 400}, {"generic": "paracetamol",     "strength_mg": 325}]},
+  {"alias": "Zerodol-P",      "components": [{"generic": "aceclofenac",   "strength_mg": 100}, {"generic": "paracetamol",     "strength_mg": 325}]},
+  {"alias": "Sinarest",       "components": [{"generic": "paracetamol",   "strength_mg": 500}, {"generic": "phenylephrine",   "strength_mg": 10},  {"generic": "chlorpheniramine", "strength_mg": 2}]},
+  {"alias": "Pan-D",          "components": [{"generic": "pantoprazole",  "strength_mg": 40},  {"generic": "domperidone",     "strength_mg": 30}]},
+  {"alias": "Telma-AM",       "components": [{"generic": "telmisartan",   "strength_mg": 40},  {"generic": "amlodipine",      "strength_mg": 5}]},
+  {"alias": "Brustan",        "components": [{"generic": "ibuprofen",     "strength_mg": 400}, {"generic": "paracetamol",     "strength_mg": 325}]}
+]
