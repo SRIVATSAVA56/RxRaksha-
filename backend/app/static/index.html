@@ -159,14 +159,6 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <h1>Understand medication risks before the next prescription.</h1>
       <p>Rule-based findings · clear explanations · honest coverage. Every flag shows its source.</p>
       <button class="btn" id="heroGo" style="margin-top:24px">Start review →</button>
-      <div class="or">HOW IT WORKS</div>
-      <button class="btn ghost" id="howBtn">Rule engine vs. AI wording</button>
-      <p class="hero-note" id="howTxt" style="display:none;margin-top:14px;text-align:left">
-        All findings, severities and scores come from a <b>deterministic rule engine</b> — same input, same output.
-        Optional AI can only <i>re-word</i> explanations, and only after human verification. It can never create,
-        remove or regrade a finding.
-      </p>
-      <p class="hero-note">No accounts · no real patient data · synthetic cases only</p>
     </div>
   </div>
   <div class="flow3">
@@ -313,7 +305,6 @@ $$("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
 $$("[data-nav]").forEach(b=>b.onclick=()=>{
   show(b.dataset.nav==="home"?"scr-home":"scr-patient");
 });
-$("#howBtn").onclick=()=>{const t=$("#howTxt");t.style.display=t.style.display==="none"?"block":"none"};
 $("#heroGo").onclick=()=>show("scr-patient");
 $("#newReview").onclick=()=>location.reload();
 
