@@ -174,8 +174,13 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
 <section id="scr-patient" class="screen">
   <div class="wrap">
     <div class="steps"><span class="on">1 · Patient</span><span>2 · Prescription</span><span>3 · Confirm</span><span>4 · Results</span></div>
-    <h2 style="margin-top:18px">Patient profile</h2>
-    <p class="sub">Synthetic demo patient. “Unknown” is honest — it is never treated as “no allergy / no impairment”.</p>
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:18px">
+      <div>
+        <h2>Patient profile</h2>
+        <p class="sub">Synthetic demo patient. “Unknown” is honest — it is never treated as “no allergy / no impairment”.</p>
+      </div>
+      <button type="button" class="btn ghost" id="navToScan" style="width:auto; padding:8px 16px; font-size:13px; font-weight:600; white-space:nowrap; margin-top:2px">📷 Scan prescription image →</button>
+    </div>
     <div class="grid2">
       <div class="panel">
         <h3>Details</h3>
@@ -210,11 +215,25 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
   <div class="wrap">
     <div class="steps"><span class="done">1 · Patient</span><span class="on">2 · Prescription</span><span>3 · Confirm</span><span>4 · Results</span></div>
     <h2 style="margin-top:18px">Prescription entry</h2>
-    <p class="sub">One medicine per line — name, strength, frequency. Image upload (OCR) is a P1 item and is labelled as unavailable in this prototype.</p>
+    <p class="sub">One medicine per line — name, strength, frequency. Upload a prescription image (OCR) or type lines directly.</p>
     <div class="panel" style="max-width:720px">
-      <h3>Proposed medicines</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+        <h3>Proposed medicines</h3>
+        <label class="btn ghost" style="width:auto; padding:6px 14px; font-size:13px; cursor:pointer; margin:0">
+          📷 Upload Image
+          <input type="file" id="rxImageInput" accept="image/*" style="display:none">
+        </label>
+      </div>
+
+      <div id="ocrDropzone" style="border:2px dashed var(--border); border-radius:var(--ctl); padding:18px; text-align:center; background:#FAFDFD; cursor:pointer; margin-bottom:14px; transition:border-color .15s">
+        <div style="font-size:26px; margin-bottom:4px">📷</div>
+        <b style="color:var(--primary); font-size:14px">Click here to upload prescription image or drag &amp; drop</b>
+        <p style="font-size:12.5px; color:var(--muted); margin-top:3px">Automatically extracts medication lines using Tesseract OCR</p>
+      </div>
+      <div id="ocrStatus" style="display:none; margin-bottom:12px"></div>
+
+      <label style="font-size:13px; font-weight:600; margin-bottom:6px">Prescription lines (edit or type directly):</label>
       <textarea id="rxLines" rows="6" placeholder="Warf 5mg OD&#10;Crocin 500mg 1-0-1&#10;Dolo-650 1-0-1"></textarea>
-      <div class="warn" style="margin-top:14px">📷 <b>Upload image</b> — OCR extraction is not enabled in this prototype build. Typed entry works fully offline.</div>
     </div>
     <div class="foot" style="max-width:720px">
       <button class="btn ghost" data-go="scr-patient">← Back</button>
@@ -487,6 +506,49 @@ $("#pAllergy").addEventListener("input",()=>{
   pending=null;
 });
 $$(".seg3").forEach(g=>g.addEventListener("click",()=>{ pending=null; }));
+
+/* image upload / OCR */
+$("#navToScan").onclick=()=>show("scr-rx");
+
+const dropzone=$("#ocrDropzone"), fileInput=$("#rxImageInput"), ocrStatus=$("#ocrStatus");
+dropzone.onclick=()=>fileInput.click();
+dropzone.ondragover=e=>{ e.preventDefault(); dropzone.style.borderColor="var(--primary)"; };
+dropzone.ondragleave=()=>{ dropzone.style.borderColor="var(--border)"; };
+dropzone.ondrop=e=>{
+  e.preventDefault();
+  dropzone.style.borderColor="var(--border)";
+  if(e.dataTransfer.files.length) handleImageUpload(e.dataTransfer.files[0]);
+};
+fileInput.onchange=()=>{
+  if(fileInput.files.length) handleImageUpload(fileInput.files[0]);
+};
+
+async function handleImageUpload(file){
+  if(!file) return;
+  ocrStatus.style.display="block";
+  ocrStatus.className="warn";
+  ocrStatus.innerHTML=`⏳ <b>Scanning prescription image (${esc(file.name)})…</b> Extracting text via OCR…`;
+  const fd=new FormData();
+  fd.append("image", file);
+  try{
+    const res=await fetch("/ocr/extract",{method:"POST", body:fd});
+    if(!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const data=await res.json();
+    if(data.lines && data.lines.length){
+      const existing=$("#rxLines").value.trim();
+      $("#rxLines").value=existing ? existing+"\n"+data.lines.join("\n") : data.lines.join("\n");
+      ocrStatus.className="pcontext-bar";
+      ocrStatus.innerHTML=`✔ <b>Extracted ${data.lines.length} lines from ${esc(file.name)}:</b> Added to proposed medicines below. You can review or edit any line before continuing.`;
+      pending=null;
+    } else {
+      ocrStatus.className="warn";
+      ocrStatus.innerHTML=`⚠ <b>No legible text detected in ${esc(file.name)}.</b> Please ensure the image is clear, or type the prescription lines manually below.`;
+    }
+  }catch(err){
+    ocrStatus.className="warn";
+    ocrStatus.innerHTML=`❌ <b>OCR error:</b> ${esc(err.message)}. You can type lines directly below.`;
+  }
+}
 
 /* results */
 function renderResults(r){lastReport=r;

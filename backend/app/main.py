@@ -142,13 +142,42 @@ def analyze_summary(req: SummaryRequest):
     v = Verification(verifier_id=req.verifier_id, method=req.method).sign(draft)
     return {"report": attach_verified(dict(req.report), draft, v)}
 
+def _init_tesseract():
+    import pytesseract
+    import shutil
+    if not shutil.which("tesseract"):
+        for p in [Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+                 Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe")]:
+            if p.exists():
+                pytesseract.pytesseract.tesseract_cmd = str(p)
+                break
+    return pytesseract
+
+@app.post("/ocr/extract")
+async def ocr_extract(image: UploadFile = File(...)):
+    """Extract plain text lines from an uploaded prescription image."""
+    try:
+        from PIL import Image
+        pytesseract = _init_tesseract()
+    except ImportError:
+        raise HTTPException(503, "OCR unavailable: install pytesseract + Pillow")
+
+    raw = await image.read()
+    try:
+        text = pytesseract.image_to_string(Image.open(io.BytesIO(raw)))
+    except Exception as e:
+        raise HTTPException(422, f"OCR extraction failed: {e}")
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return {"text": text, "lines": lines}
+
 @app.post("/analyze/image")
 async def analyze_image(image: UploadFile = File(...),
                         patient: str = Form(default="{}")):
     """OCR path. pytesseract is optional: if unavailable, 503 with a clear reason."""
     try:
-        import pytesseract
         from PIL import Image
+        pytesseract = _init_tesseract()
     except ImportError:
         raise HTTPException(503, "OCR unavailable: install pytesseract + Pillow + tesseract binary")
 
@@ -168,3 +197,4 @@ async def analyze_image(image: UploadFile = File(...),
     out = _run_pipeline(lines, patient_dict)
     out["ocr"] = {"engine": "tesseract", "lines_extracted": len(lines), "raw_text": text}
     return out
+
