@@ -188,13 +188,13 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <div class="panel">
         <h3>Details</h3>
         <div class="row3">
-          <div><label>Age</label><input id="pAge" type="number" value="58"></div>
-          <div><label>Weight (kg)</label><input id="pWt" type="number" value="72"></div>
+          <div><label>Age</label><input id="pAge" type="number" placeholder="Years"></div>
+          <div><label>Weight (kg)</label><input id="pWt" type="number" placeholder="kg"></div>
           <div><label>Gender</label>
-            <div class="seg3" id="pGender"><button class="on">F</button><button>M</button><button>Other</button></div></div>
+            <div class="seg3" id="pGender"><button>F</button><button>M</button><button>Other</button></div></div>
         </div>
         <label>Allergies (comma separated)</label>
-        <input id="pAllergy" placeholder="penicillin, sulfa">
+        <input id="pAllergy" placeholder="e.g. penicillin, sulfa">
         <div class="seg3" id="pAllergyState" style="margin-top:8px">
           <button class="on">Unknown / not supplied</button><button>None reported</button><button>Listed above</button>
         </div>
@@ -291,11 +291,30 @@ function show(id){$$(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
   $$("[data-nav]").forEach(b=>b.classList.toggle("on",(id==="scr-home")==(b.dataset.nav==="home")));
   window.scrollTo(0,0)}
 $$("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
-$$("[data-nav]").forEach(b=>b.onclick=()=>show(b.dataset.nav==="home"?"scr-home":"scr-patient"));
+$$("[data-nav]").forEach(b=>b.onclick=()=>{
+  if(b.dataset.nav==="workspace" && !demoMode && !$("#pAge").value && !$("#rxLines").value) clearInputs();
+  show(b.dataset.nav==="home"?"scr-home":"scr-patient");
+});
 $("#howBtn").onclick=()=>{const t=$("#howTxt");t.style.display=t.style.display==="none"?"block":"none"};
-$("#ctaDemo").onclick=()=>{demoMode=true};
-$("#ctaStart").onclick=()=>{demoMode=false};
-$("#heroGo").onclick=()=>{if(demoMode)loadDemo();show("scr-patient")};
+$("#ctaDemo").onclick=()=>{
+  demoMode=true;
+  $("#ctaDemo").classList.add("on");
+  $("#ctaStart").classList.remove("on");
+};
+$("#ctaStart").onclick=()=>{
+  demoMode=false;
+  $("#ctaStart").classList.add("on");
+  $("#ctaDemo").classList.remove("on");
+  clearInputs();
+};
+$("#heroGo").onclick=()=>{
+  if(demoMode){
+    loadDemo();
+  } else {
+    clearInputs();
+  }
+  show("scr-patient");
+};
 $("#newReview").onclick=()=>location.reload();
 
 /* seg3 toggle groups */
@@ -307,10 +326,24 @@ $$(".seg3").forEach(g=>g.addEventListener("click",e=>{
 function medRow(n="",d="",f=""){const r=document.createElement("div");r.className="medrow";
   r.innerHTML=`<input placeholder="Medicine" value="${n}"><input placeholder="Dose" value="${d}"><input placeholder="Frequency" value="${f}"><button title="Remove">×</button>`;
   r.querySelector("button").onclick=()=>r.remove();$("#medList").appendChild(r)}
-$("#addMed").onclick=()=>medRow(); medRow();
+$("#addMed").onclick=()=>medRow();
+
+function clearInputs(){
+  $("#pAge").value="";
+  $("#pWt").value="";
+  $$("#pGender button").forEach(b=>b.classList.remove("on"));
+  $("#pAllergy").value="";
+  setSeg("pAllergyState",0);
+  setSeg("pKidney",0);
+  setSeg("pLiver",0);
+  $("#medList").innerHTML="";
+  $("#rxLines").value="";
+}
+clearInputs();
 
 function loadDemo(){
   $("#pAge").value=58;$("#pWt").value=72;
+  setSeg("pGender",0);
   $("#pAllergy").value="penicillin";
   setSeg("pAllergyState",2);setSeg("pKidney",0);setSeg("pLiver",0);
   $("#medList").innerHTML="";medRow("Metformin","500mg","BD");
