@@ -48,7 +48,11 @@ STATIC = Path(__file__).resolve().parent / "static"
 
 @app.get("/", include_in_schema=False)
 def ui():
-    return FileResponse(STATIC / "index.html")
+    resp = FileResponse(STATIC / "index.html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 # ---------- schemas ----------
 
 class PatientProfile(BaseModel):
