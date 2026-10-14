@@ -164,26 +164,23 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
     </div>
   </div>
   <div class="flow3">
-    <div><b>1 · Add context</b><span>Patient profile, allergies and current medicines.</span></div>
-    <div><b>2 · Confirm prescription</b><span>Typed lines; every unresolved name stays visible.</span></div>
-    <div><b>3 · Review findings</b><span>Prototype score, severity-ordered findings, full rationale.</span></div>
+    <div><b>1 · Enter prescription</b><span>Patient profile, allergies and medication lines or image scan.</span></div>
+    <div><b>2 · Confirm normalization</b><span>Verify ingredients, daily doses and unresolved items.</span></div>
+    <div><b>3 · Review findings</b><span>Risk score, auditable ledger, and clinical rationale.</span></div>
   </div>
 </section>
 
-<!-- ================= STAGE 1: PATIENT ================= -->
+<!-- ================= STAGE 1: PATIENT & PRESCRIPTION ================= -->
 <section id="scr-patient" class="screen">
   <div class="wrap">
-    <div class="steps"><span class="on">1 · Patient</span><span>2 · Prescription</span><span>3 · Confirm</span><span>4 · Results</span></div>
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:18px">
-      <div>
-        <h2>Patient profile</h2>
-        <p class="sub">Synthetic demo patient. “Unknown” is honest — it is never treated as “no allergy / no impairment”.</p>
-      </div>
-      <button type="button" class="btn ghost" id="navToScan" style="width:auto; padding:8px 16px; font-size:13px; font-weight:600; white-space:nowrap; margin-top:2px">📷 Scan prescription image →</button>
+    <div class="steps"><span class="on">1 · Prescription</span><span>2 · Confirm</span><span>3 · Results</span></div>
+    <div style="margin-top:18px">
+      <h2>Prescription &amp; Patient Profile</h2>
+      <p class="sub">Enter patient context on the left, upload or type prescription medicines on the right.</p>
     </div>
     <div class="grid2">
       <div class="panel">
-        <h3>Details</h3>
+        <h3>Patient Profile</h3>
         <div class="row3">
           <div><label>Age</label><input id="pAge" type="text" placeholder="e.g. 58"></div>
           <div><label>Weight (kg)</label><input id="pWt" type="text" placeholder="e.g. 72"></div>
@@ -199,53 +196,40 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
         <div class="seg3" id="pKidney"><button type="button" class="on">Unknown</button><button type="button">Normal</button><button type="button">Impaired</button></div>
         <label>Liver status</label>
         <div class="seg3" id="pLiver"><button type="button" class="on">Unknown</button><button type="button">Normal</button><button type="button">Impaired</button></div>
-      </div>
-      <div class="panel">
-        <h3>Current medicines</h3>
+
+        <h3 style="margin-top:20px; font-size:13px">Current ongoing medicines (optional)</h3>
         <div id="medList"></div>
-        <button type="button" class="addrow" id="addMed">+ Add medicine</button>
+        <button type="button" class="addrow" id="addMed">+ Add current medicine</button>
+      </div>
+
+      <div class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <h3>Prescription Medicines</h3>
+          <label class="btn ghost" style="width:auto; padding:6px 14px; font-size:13px; cursor:pointer; margin:0">
+            📷 Upload Image
+            <input type="file" id="rxImageInput" accept="image/*" style="display:none">
+          </label>
+        </div>
+
+        <div id="ocrDropzone" style="border:2px dashed var(--border); border-radius:var(--ctl); padding:18px; text-align:center; background:#FAFDFD; cursor:pointer; margin-bottom:14px; transition:border-color .15s">
+          <div style="font-size:26px; margin-bottom:4px">📷</div>
+          <b style="color:var(--primary); font-size:14px">Click here to upload prescription image or drag &amp; drop</b>
+          <p style="font-size:12.5px; color:var(--muted); margin-top:3px">Automatically extracts medication lines using local Tesseract OCR</p>
+        </div>
+        <div id="ocrStatus" style="display:none; margin-bottom:12px"></div>
+
+        <label style="font-size:13px; font-weight:600; margin-bottom:6px">Prescription lines (one per line, e.g. Warf 5mg OD):</label>
+        <textarea id="rxLines" rows="7" placeholder="Type medicines here or upload image above..."></textarea>
       </div>
     </div>
-    <div class="foot"><span></span><button type="button" class="btn" id="toRx">Continue →</button></div>
+    <div class="foot"><span></span><button type="button" class="btn" id="toConfirm">Review &amp; Normalize →</button></div>
   </div>
 </section>
 
-<!-- ================= STAGE 2: PRESCRIPTION ================= -->
-<section id="scr-rx" class="screen">
-  <div class="wrap">
-    <div class="steps"><span class="done">1 · Patient</span><span class="on">2 · Prescription</span><span>3 · Confirm</span><span>4 · Results</span></div>
-    <h2 style="margin-top:18px">Prescription entry</h2>
-    <p class="sub">One medicine per line — name, strength, frequency. Upload a prescription image (OCR) or type lines directly.</p>
-    <div class="panel" style="max-width:720px">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
-        <h3>Proposed medicines</h3>
-        <label class="btn ghost" style="width:auto; padding:6px 14px; font-size:13px; cursor:pointer; margin:0">
-          📷 Upload Image
-          <input type="file" id="rxImageInput" accept="image/*" style="display:none">
-        </label>
-      </div>
-
-      <div id="ocrDropzone" style="border:2px dashed var(--border); border-radius:var(--ctl); padding:18px; text-align:center; background:#FAFDFD; cursor:pointer; margin-bottom:14px; transition:border-color .15s">
-        <div style="font-size:26px; margin-bottom:4px">📷</div>
-        <b style="color:var(--primary); font-size:14px">Click here to upload prescription image or drag &amp; drop</b>
-        <p style="font-size:12.5px; color:var(--muted); margin-top:3px">Automatically extracts medication lines using Tesseract OCR</p>
-      </div>
-      <div id="ocrStatus" style="display:none; margin-bottom:12px"></div>
-
-      <label style="font-size:13px; font-weight:600; margin-bottom:6px">Prescription lines (edit or type directly):</label>
-      <textarea id="rxLines" rows="6" placeholder="Enter medicine lines here (one per line, e.g. Warf 5mg OD)"></textarea>
-    </div>
-    <div class="foot" style="max-width:720px">
-      <button class="btn ghost" data-go="scr-patient">← Back</button>
-      <button class="btn" id="toConfirm">Review &amp; normalize →</button>
-    </div>
-  </div>
-</section>
-
-<!-- ================= STAGE 3: CONFIRM ================= -->
+<!-- ================= STAGE 2: CONFIRM ================= -->
 <section id="scr-confirm" class="screen">
   <div class="wrap">
-    <div class="steps"><span class="done">1 · Patient</span><span class="done">2 · Prescription</span><span class="on">3 · Confirm</span><span>4 · Results</span></div>
+    <div class="steps"><span class="done">1 · Prescription</span><span class="on">2 · Confirm</span><span>3 · Results</span></div>
     <h2 style="margin-top:18px">Review &amp; normalize</h2>
     <p class="sub">Check how each line was understood. Unresolved lines stay visible and block a clean result — nothing is silently dropped.</p>
     <div id="confPatientContext"></div>
@@ -254,16 +238,16 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <thead><tr><th>Entered line</th><th>Ingredient</th><th>Strength</th><th>Daily</th><th>Matched via</th><th>Status</th></tr></thead>
       <tbody></tbody></table></div>
     <div class="foot">
-      <button class="btn ghost" data-go="scr-rx">← Edit lines</button>
+      <button class="btn ghost" data-go="scr-patient">← Edit inputs</button>
       <button class="btn" id="runAnalysis">Run safety analysis →</button>
     </div>
   </div>
 </section>
 
-<!-- ================= STAGE 4: RESULTS ================= -->
+<!-- ================= STAGE 3: RESULTS ================= -->
 <section id="scr-results" class="screen">
   <div class="wrap">
-    <div class="steps"><span class="done">1 · Patient</span><span class="done">2 · Prescription</span><span class="done">3 · Confirm</span><span class="on">4 · Results</span></div>
+    <div class="steps"><span class="done">1 · Prescription</span><span class="done">2 · Confirm</span><span class="on">3 · Results</span></div>
     <div class="banner" id="covBanner" style="margin-top:18px"></div>
     <div id="resPatientContext"></div>
     <div class="rgrid">
@@ -300,7 +284,7 @@ const GC={Safe:"#0F766E",Caution:"#B54708",Warning:"#B54708","High Risk":"#B4231
 let lastReport=null;
 
 /* nav */
-const STAGES = ["scr-patient", "scr-rx", "scr-confirm", "scr-results"];
+const STAGES = ["scr-patient", "scr-confirm", "scr-results"];
 
 function updateSteps(currentStageId) {
   const currentIdx = STAGES.indexOf(currentStageId);
@@ -519,15 +503,11 @@ $$(".steps").forEach(bar=>{
   spans.forEach((span,idx)=>{
     span.onclick=()=>{
       if(idx===0) show("scr-patient");
-      else if(idx===1){ if(validatePatientStep()) show("scr-rx"); }
-      else if(idx===2){ if(validatePatientStep()) goToConfirm(); }
-      else if(idx===3){ if(validatePatientStep()) goToResults(); }
+      else if(idx===1){ goToConfirm(); }
+      else if(idx===2){ goToResults(); }
     };
   });
 });
-
-const toRxBtn=$("#toRx");
-if(toRxBtn) toRxBtn.onclick=()=>{ if(validatePatientStep()) show("scr-rx"); };
 
 $("#rxLines").addEventListener("input",()=>{ pending=null; });
 $("#pAge").addEventListener("input",()=>{ pending=null; });
@@ -543,8 +523,6 @@ $("#pAllergy").addEventListener("input",()=>{
 $$(".seg3").forEach(g=>g.addEventListener("click",()=>{ pending=null; }));
 
 /* image upload / OCR */
-$("#navToScan").onclick=()=>{ if(validatePatientStep()) show("scr-rx"); };
-
 const dropzone=$("#ocrDropzone"), fileInput=$("#rxImageInput"), ocrStatus=$("#ocrStatus");
 dropzone.onclick=()=>fileInput.click();
 dropzone.ondragover=e=>{ e.preventDefault(); dropzone.style.borderColor="var(--primary)"; };
