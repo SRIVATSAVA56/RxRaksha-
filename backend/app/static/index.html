@@ -282,7 +282,10 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
         <!-- Status / Error notice banner -->
         <div id="ocrNotice" style="display:none; margin-bottom:14px"></div>
 
-        <label style="font-size:13px; font-weight:600; margin-bottom:6px">Prescription lines (one per line, e.g. Warf 5mg OD):</label>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label style="font-size:13px; font-weight:600">Prescription lines (one per line, e.g. Warf 5mg OD):</label>
+          <button type="button" id="loadDemoBtn" style="font-size:11.5px;padding:3px 10px;border:1px solid var(--border);border-radius:6px;background:#f0fdfb;color:var(--primary);cursor:pointer;font-weight:600">📋 Try demo data</button>
+        </div>
         <textarea id="rxLines" rows="7" placeholder="Type medicines here or extract from image above..."></textarea>
       </div>
     </div>
@@ -449,8 +452,10 @@ async function apiFetch(url, options = {}) {
     if (url === "/auth/google" || url === "/auth/demo") {
       return resp;
     }
-    logout();
-    showLoginNotice("Session expired — please sign in again.", "warn");
+    // Soft clear — do NOT call showLogin() here
+    token = null;
+    currentUser = null;
+    localStorage.removeItem("rx_token");
     throw new Error("Session expired (401)");
   }
   return resp;
@@ -737,7 +742,20 @@ function showInlineWarn(msg){
     box.style.display = "block";
     box.scrollIntoView({behavior:"smooth", block:"center"});
   }
+  /* Shake + highlight the textarea so it's impossible to miss */
+  const ta = document.getElementById("rxLines");
+  if(ta && !ta.value.trim()){
+    ta.style.borderColor = "var(--crit, #dc2626)";
+    ta.style.boxShadow = "0 0 0 3px rgba(220,38,38,0.18)";
+    ta.classList.add("shake");
+    setTimeout(() => {
+      ta.classList.remove("shake");
+      ta.style.borderColor = "";
+      ta.style.boxShadow = "";
+    }, 700);
+  }
 }
+
 
 function showValidationMsg(msg, targetEl){
   showInlineWarn(msg);
@@ -773,7 +791,25 @@ function clearInputs(){
   if (typeof clearImageSelection === "function") clearImageSelection();
   pending = null; // or false, or []
 }
-clearInputs();
+// clearInputs() moved to bottom of script after all const declarations to avoid TDZ ReferenceError
+
+
+/* Demo data for hackathon demos */
+document.getElementById("loadDemoBtn").addEventListener("click", () => {
+  $("#pAge").value = "72";
+  $("#pWt").value = "68";
+  setSeg("pGender", 0); /* F */
+  setSeg("pAllergyState", 1); /* None */
+  setSeg("pKidney", 0); /* Unknown */
+  setSeg("pLiver", 0); /* Unknown */
+  $("#rxLines").value = "Warfarin 5mg OD\nAspirin 75mg OD\nMetoprolol 50mg BD\nAtorvastatin 40mg ON\nOmeprazole 20mg OD";
+  pending = null;
+  clearErrors();
+  const warn = document.getElementById("inlineWarn");
+  if(warn) warn.style.display = "none";
+  $("#rxLines").focus();
+});
+
 
 function validatePatientStep(silent=false){
   clearErrors();
@@ -815,8 +851,10 @@ function getAllLines(){
       currentLines.push([name, dose, freq].filter(Boolean).join(" "));
     }
   });
-  const proposedLines=$("#rxLines").value.split("\n").map(s=>s.trim()).filter(Boolean);
-  return {currentLines, proposedLines, allLines:[...currentLines, ...proposedLines]};
+  const rxVal = $("#rxLines")?.value || "";
+  const proposedLines = rxVal.split("\n").map(s=>s.trim()).filter(Boolean);
+  const allLines = [...currentLines, ...proposedLines];
+  return {currentLines, proposedLines, allLines};
 }
 
 function getPatientSummaryHtml(){
@@ -861,6 +899,7 @@ fetch("/health").then(r=>{
 async function goToConfirm(){
   const rxLinesEl = document.getElementById("rxLines");
   const { allLines } = getAllLines();
+  console.log("[goToConfirm] allLines =", allLines);
 
   if(!allLines.length){
     if(selectedImageFile && !imageExtracted){
@@ -868,56 +907,73 @@ async function goToConfirm(){
       const extractBtn = document.getElementById("extractBtn");
       if(extractBtn) extractBtn.scrollIntoView({behavior:"smooth", block:"center"});
     } else {
-      showInlineWarn("Enter at least one medicine line, or extract from image first.");
+      showInlineWarn("Enter at least one medicine line (prescription box or current medicines), or extract from image first.");
       if(rxLinesEl) rxLinesEl.focus();
     }
-    show("scr-patient");
-    return;
+    return; // stay on patient — do not call show()
   }
+
   clearErrors();
-  if(!pending){
-    const toConfirmBtn = document.getElementById("toConfirm");
-    if(toConfirmBtn) toConfirmBtn.textContent="Reviewing & Normalizing…";
-    try{
-      pending=await api(allLines);
-    }catch(e){
-      console.error("Analysis failed:", e);
-      showInlineWarn("Analysis failed: "+e.message);
-      show("scr-patient");
-      return;
-    }finally{
-      if(toConfirmBtn) toConfirmBtn.textContent="Review & Normalize →";
+  const toConfirmBtn = document.getElementById("toConfirm");
+  if(toConfirmBtn) toConfirmBtn.textContent = "Reviewing & Normalizing…";
+
+  try {
+    if(!pending){
+      pending = await api(allLines);
     }
+    renderConfirm(pending);
+    show("scr-confirm");
+  } catch(e) {
+    console.error("Analysis failed:", e);
+    const msg = String(e.message || e);
+    if(msg.includes("401") || msg.includes("Session expired")){
+      token = null;
+      currentUser = null;
+      localStorage.removeItem("rx_token");
+      showLoginNotice("Session expired — please sign in again.", "warn");
+      showLogin();
+      return;
+    }
+    showInlineWarn("Analysis failed: " + msg);
+  } finally {
+    if(toConfirmBtn) toConfirmBtn.textContent = "Review & Normalize →";
   }
-  renderConfirm(pending);
-  show("scr-confirm");
 }
 
 async function goToResults(){
-  const {allLines}=getAllLines();
+  const {allLines} = getAllLines();
+  console.log("[goToResults] allLines =", allLines);
   if(!allLines.length){
-    showInlineWarn("Enter at least one medicine line, or extract from image first.");
-    show("scr-patient");
+    showInlineWarn("Enter at least one medicine line (prescription box or current medicines), or extract from image first.");
     return;
   }
+
   clearErrors();
-  if(!pending){
-    const runBtn = document.getElementById("runAnalysis");
-    if(runBtn) runBtn.textContent="Analyzing…";
-    try{
-      pending=await api(allLines);
+  const runBtn = document.getElementById("runAnalysis");
+  if(runBtn) runBtn.textContent = "Analyzing…";
+
+  try {
+    if(!pending){
+      pending = await api(allLines);
       renderConfirm(pending);
-    }catch(e){
-      console.error("Analysis failed:", e);
-      showInlineWarn("Analysis failed: "+e.message);
-      show("scr-patient");
-      return;
-    }finally{
-      if(runBtn) runBtn.textContent="Run safety analysis →";
     }
+    renderResults(pending);
+    show("scr-results");
+  } catch(e) {
+    console.error("Analysis failed:", e);
+    const msg = String(e.message || e);
+    if(msg.includes("401") || msg.includes("Session expired")){
+      token = null;
+      currentUser = null;
+      localStorage.removeItem("rx_token");
+      showLoginNotice("Session expired — please sign in again.", "warn");
+      showLogin();
+      return;
+    }
+    showInlineWarn("Analysis failed: " + msg);
+  } finally {
+    if(runBtn) runBtn.textContent = "Run safety analysis →";
   }
-  renderResults(pending);
-  show("scr-results");
 }
 
 document.getElementById("toConfirm").addEventListener("click", async () => {
@@ -925,11 +981,13 @@ document.getElementById("toConfirm").addEventListener("click", async () => {
 });
 
 async function api(lines){
+  console.log("[api] POST /analyze lines =", lines);
   const r=await apiFetch("/analyze",{method:"POST",
     body:JSON.stringify({lines,patient:getCurrentPatient()})});
   if(!r.ok){
     const err = await r.json().catch(()=>({}));
-    throw new Error(err.detail||r.statusText);
+    const detail = typeof err.detail === "object" ? JSON.stringify(err.detail) : (err.detail || r.statusText);
+    throw new Error(detail);
   }
   return r.json();
 }
@@ -1150,7 +1208,7 @@ if(extractBtn){
     hideOcrNotice();
 
     extractBtn.disabled = true;
-    extractBtn.innerHTML = `<span style="display:inline-block; animation:rot 1s linear infinite; margin-right:6px">⏳</span> Extracting…`;
+    extractBtn.textContent = "Extracting…";
 
     const fd = new FormData();
     fd.append("image", selectedImageFile);
@@ -1159,17 +1217,7 @@ if(extractBtn){
     try{
       const resp = await apiFetch("/analyze/image", { method: "POST", body: fd });
       if(!resp.ok){
-        const errJson = await resp.json().catch(() => ({}));
-        const detail = errJson.detail || resp.statusText || "";
-        if(resp.status === 503){
-          showOcrWarning("OCR unavailable on this machine — use typed entry below");
-        } else if(resp.status === 422){
-          showOcrWarning(`OCR failed: ${detail}. Try a clearer photo or type the medicines manually.`);
-        } else if(resp.status === 413){
-          showOcrWarning("Image file exceeds 10MB limit. Please upload a smaller image.");
-        } else {
-          showOcrWarning(`OCR failed (${resp.status}): ${detail}`);
-        }
+        showOcrWarning("OCR unavailable — please type medicines manually.");
         return;
       }
 
@@ -1178,18 +1226,23 @@ if(extractBtn){
       const linesExtracted = data.ocr ? data.ocr.lines_extracted : 0;
 
       if(rawText){
-        document.getElementById("rxLines").value = rawText;
-        document.getElementById("rxLines").style.borderColor = "";
+        const rxLines = document.getElementById("rxLines");
+        if(rxLines){
+          const currentText = rxLines.value.trim();
+          rxLines.value = currentText ? `${currentText}\n${rawText}` : rawText;
+          rxLines.style.borderColor = "";
+          rxLines.dispatchEvent(new Event("input", { bubbles: true }));
+        }
         clearErrors();
         pending = null;
         imageExtracted = true;
         const count = linesExtracted || rawText.split("\n").filter(s => s.trim()).length;
-        showOcrSuccess(`✔ Extracted ${count} lines via OCR — review and edit before continuing`);
+        showOcrSuccess(`✓ Extracted ${count} line(s) — review and edit before continuing`);
       } else {
-        showOcrWarning("No legible text detected in prescription image. Try a clearer photo or type the medicines manually.");
+        showOcrWarning("OCR unavailable — please type medicines manually.");
       }
     } catch(err){
-      showOcrWarning(`OCR failed: ${err.message}. Try a clearer photo or type the medicines manually.`);
+      showOcrWarning("OCR unavailable — please type medicines manually.");
     } finally {
       extractBtn.disabled = false;
       extractBtn.textContent = "Extract text";
@@ -1966,7 +2019,8 @@ function renderVaultFileList() {
   });
 }
 
-// Initialize auth
+// Initialize inputs and auth safely after all DOM elements and consts are declared
+clearInputs();
 initAuth();
 </script>
 </body>
