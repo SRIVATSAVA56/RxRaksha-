@@ -32,7 +32,10 @@ def client(env, monkeypatch):
     monkeypatch.setitem(m.state, "conn", ne.conn)
     monkeypatch.setitem(m.state, "normalizer", ne)
     monkeypatch.setitem(m.state, "rules", re_)
-    return TestClient(m.app)
+    from app.auth import create_token
+    c = TestClient(m.app)
+    c.headers["Authorization"] = f"Bearer {create_token('demo:demo-user')}"
+    return c
 
 CASE_B = {"lines": ["Warf 5mg OD", "Crocin 500mg 1-0-1", "Dolo-650 1-0-1"], "patient": {}}
 

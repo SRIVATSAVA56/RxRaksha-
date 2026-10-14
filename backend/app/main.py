@@ -14,7 +14,7 @@ import io, sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -25,6 +25,16 @@ from app.rules.engine import RulesEngine, RulesReport, Finding
 from app.scoring.engine import score as score_report
 from app.explain.templates import explain_findings, explain_summary
 from app.explain.summarizer import generate, attach_verified, Verification
+from app.auth import router as auth_router, get_current_user
+
+try:
+    import pytesseract
+    if Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe").exists():
+        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+except ImportError:
+    pytesseract = None
+
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
 
 # ---------- app state ----------
 
@@ -43,16 +53,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="RxRaksha API", version="0.5.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(auth_router)
 
 STATIC = Path(__file__).resolve().parent / "static"
 
 @app.get("/", include_in_schema=False)
+@app.get("/static/index.html", include_in_schema=False)
 def ui():
     resp = FileResponse(STATIC / "index.html")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+try:
+    from fastapi.staticfiles import StaticFiles
+    if STATIC.exists():
+        app.mount("/static", StaticFiles(directory=STATIC), name="static")
+except Exception:
+    pass
 # ---------- schemas ----------
 
 class PatientProfile(BaseModel):
@@ -124,13 +143,13 @@ def health():
             "interactions": conn.execute(f"SELECT COUNT(*) FROM {T_INTER}").fetchone()[0]}
 
 @app.post("/analyze")
-def analyze(req: AnalyzeRequest):
+def analyze(req: AnalyzeRequest, current_user: dict = Depends(get_current_user)):
     if not any(l.strip() for l in req.lines):
         raise HTTPException(400, "at least one non-empty prescription line is required")
     return _run_pipeline(req.lines, req.patient.model_dump())
 
 @app.post("/analyze/summary")
-def analyze_summary(req: SummaryRequest):
+def analyze_summary(req: SummaryRequest, current_user: dict = Depends(get_current_user)):
     """Demonstrates D10: generates an AI draft from the templated summary.
     If verifier_id is provided, attaches it as verified; otherwise returns
     the draft OUTSIDE the report, unverified and clearly labeled."""
@@ -147,29 +166,40 @@ def analyze_summary(req: SummaryRequest):
     return {"report": attach_verified(dict(req.report), draft, v)}
 
 def _init_tesseract():
-    import pytesseract
+    try:
+        from PIL import Image
+        import pytesseract
+    except ImportError:
+        raise HTTPException(503, "OCR unavailable: install pytesseract + Pillow")
+
     import shutil
-    if not shutil.which("tesseract"):
+    cmd = getattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract")
+    if not Path(cmd).exists() and not shutil.which(cmd):
         for p in [Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-                 Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe")]:
+                  Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe")]:
             if p.exists():
                 pytesseract.pytesseract.tesseract_cmd = str(p)
+                cmd = str(p)
                 break
-    return pytesseract
+    if not Path(cmd).exists() and not shutil.which(cmd):
+        raise HTTPException(503, "OCR unavailable: tesseract binary not installed or path not found")
+    return pytesseract, Image
 
 @app.post("/ocr/extract")
 async def ocr_extract(image: UploadFile = File(...)):
     """Extract plain text lines from an uploaded prescription image."""
-    try:
-        from PIL import Image
-        pytesseract = _init_tesseract()
-    except ImportError:
-        raise HTTPException(503, "OCR unavailable: install pytesseract + Pillow")
+    pytesseract, Image = _init_tesseract()
 
     raw = await image.read()
+    if len(raw) > MAX_IMAGE_SIZE:
+        raise HTTPException(413, "Image file too large: maximum allowed size is 10MB")
+
     try:
         text = pytesseract.image_to_string(Image.open(io.BytesIO(raw)))
     except Exception as e:
+        err_msg = str(e)
+        if "not installed" in err_msg.lower() or "not found" in err_msg.lower():
+            raise HTTPException(503, f"OCR unavailable: {e}")
         raise HTTPException(422, f"OCR extraction failed: {e}")
 
     lines = [l.strip() for l in text.splitlines() if l.strip()]
@@ -177,13 +207,14 @@ async def ocr_extract(image: UploadFile = File(...)):
 
 @app.post("/analyze/image")
 async def analyze_image(image: UploadFile = File(...),
-                        patient: str = Form(default="{}")):
+                        patient: str = Form(default="{}"),
+                        current_user: dict = Depends(get_current_user)):
     """OCR path. pytesseract is optional: if unavailable, 503 with a clear reason."""
-    try:
-        from PIL import Image
-        pytesseract = _init_tesseract()
-    except ImportError:
-        raise HTTPException(503, "OCR unavailable: install pytesseract + Pillow + tesseract binary")
+    pytesseract, Image = _init_tesseract()
+
+    raw = await image.read()
+    if len(raw) > MAX_IMAGE_SIZE:
+        raise HTTPException(413, "Image file too large: maximum allowed size is 10MB")
 
     import json as _json
     try:
@@ -191,10 +222,12 @@ async def analyze_image(image: UploadFile = File(...),
     except _json.JSONDecodeError:
         raise HTTPException(400, "patient form field must be valid JSON")
 
-    raw = await image.read()
     try:
         text = pytesseract.image_to_string(Image.open(io.BytesIO(raw)))
-    except Exception as e:                              # tesseract missing / bad image
+    except Exception as e:
+        err_msg = str(e)
+        if "not installed" in err_msg.lower() or "not found" in err_msg.lower():
+            raise HTTPException(503, f"OCR unavailable: {e}")
         raise HTTPException(422, f"OCR failed: {e}")
 
     lines = [l.strip() for l in text.splitlines() if l.strip()]

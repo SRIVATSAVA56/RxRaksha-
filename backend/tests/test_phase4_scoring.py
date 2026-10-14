@@ -72,7 +72,10 @@ def client(env, monkeypatch):
     monkeypatch.setitem(m.state, "conn", conn)
     monkeypatch.setitem(m.state, "normalizer", ne)
     monkeypatch.setitem(m.state, "rules", re_)
-    return TestClient(m.app)
+    from app.auth import create_token
+    c = TestClient(m.app)
+    c.headers["Authorization"] = f"Bearer {create_token('demo:demo-user')}"
+    return c
 
 def test_health(client):
     body = client.get("/health").json()

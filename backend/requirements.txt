@@ -8,3 +8,5 @@ rapidfuzz
 python-oracledb
 httpx
 pytest
+google-auth
+PyJWT

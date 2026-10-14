@@ -98,6 +98,7 @@ tr.unres td{background:#FFF8E6}
 .tag.ok{background:var(--low-bg); color:var(--low)}
 .tag.unres{background:var(--mod-bg); color:var(--mod)}
 .warn{border-left:4px solid var(--high); background:var(--high-bg); color:#7A3A05; padding:12px 16px; border-radius:8px; font-size:14px; margin:16px 0}
+@keyframes rot{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 
 /* ---------- results ---------- */
 .banner{display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; background:var(--card); border:1px solid var(--border);
@@ -141,7 +142,7 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" fill="#0F766E"/><path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
       RxRaksha
     </div>
-    <span class="pill" id="kbPill">KB: …</span>
+    <span class="pill" id="kbPill">KB: 1,942 drugs · 160,236 interactions</span>
     <span class="badge-syn">Synthetic demo</span>
     <div class="sp"></div>
     <button data-nav="home" class="on">Home</button>
@@ -182,10 +183,10 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <div class="panel">
         <h3>Patient Profile</h3>
         <div class="row3">
-          <div><label>Age</label><input id="pAge" type="text" placeholder="e.g. 58"></div>
-          <div><label>Weight (kg)</label><input id="pWt" type="text" placeholder="e.g. 72"></div>
+          <div><label>Age</label><input id="pAge" type="text" placeholder="e.g. 58" value="58"></div>
+          <div><label>Weight (kg)</label><input id="pWt" type="text" placeholder="e.g. 72" value="72"></div>
           <div><label>Gender</label>
-            <div class="seg3" id="pGender"><button type="button">F</button><button type="button">M</button><button type="button">Other</button></div></div>
+            <div class="seg3" id="pGender"><button type="button" class="on">F</button><button type="button">M</button><button type="button">Other</button></div></div>
         </div>
         <label>Allergies (comma separated)</label>
         <input id="pAllergy" placeholder="e.g. penicillin, sulfa">
@@ -205,24 +206,54 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <div class="panel">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
           <h3>Prescription Medicines</h3>
-          <label class="btn ghost" style="width:auto; padding:6px 14px; font-size:13px; cursor:pointer; margin:0">
+          <input type="file" id="rxImageInput" accept="image/png,image/jpeg,image/webp" style="display:none">
+          <label for="rxImageInput" class="btn ghost" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:#fff;font-weight:600;font-size:13px;width:auto;margin:0">
             📷 Upload Image
-            <input type="file" id="rxImageInput" accept="image/*" style="display:none">
           </label>
         </div>
 
-        <div id="ocrDropzone" style="border:2px dashed var(--border); border-radius:var(--ctl); padding:18px; text-align:center; background:#FAFDFD; cursor:pointer; margin-bottom:14px; transition:border-color .15s">
-          <div style="font-size:26px; margin-bottom:4px">📷</div>
-          <b style="color:var(--primary); font-size:14px">Click here to upload prescription image or drag &amp; drop</b>
-          <p style="font-size:12.5px; color:var(--muted); margin-top:3px">Automatically extracts medication lines using local Tesseract OCR</p>
+        <!-- Dropzone (visible when no file chosen) -->
+        <div id="dropzone" style="border:2px dashed var(--border); border-radius:12px; padding:28px 20px; text-align:center; background:#FAFDFD; cursor:pointer; margin-bottom:14px; transition:border-color .15s, background .15s">
+          <label for="rxImageInput" style="cursor:pointer; display:block; width:100%; height:100%">
+            <div style="font-size:28px; margin-bottom:6px">📷</div>
+            <b style="color:#0F766E; font-size:15px; font-weight:600; display:block; margin-bottom:4px">Upload prescription image or drag &amp; drop</b>
+            <span style="font-size:12.5px; color:var(--muted); display:block">Supports PNG, JPG, JPEG, WEBP (up to 10MB) or Paste (Ctrl+V)</span>
+          </label>
         </div>
-        <div id="ocrStatus" style="display:none; margin-bottom:12px"></div>
+
+        <!-- File preview card -->
+        <div id="imgPreviewCard" style="display:none; margin-bottom:14px; padding:16px; background:#fff; border:1px solid var(--border); border-radius:10px">
+          <div style="display:flex; align-items:center; gap:14px">
+            <img id="imgThumb" style="width:54px; height:54px; object-fit:cover; border-radius:8px; border:1px solid var(--border); background:#FAFDFD; flex-shrink:0" alt="Prescription preview">
+            <div style="min-width:0; flex:1">
+              <div id="fileName" style="font-weight:600; font-size:13.5px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">prescription.png</div>
+              <div id="fileSize" style="font-size:12px; color:var(--muted); margin-top:2px">245 KB</div>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; font-weight:600; flex-shrink:0">
+              <label for="rxImageInput" style="color:var(--primary); cursor:pointer; text-decoration:underline">Replace</label>
+              <button type="button" id="removeBtn" style="background:none; border:none; color:var(--crit); font-size:13px; font-weight:600; padding:0; cursor:pointer; text-decoration:underline">Remove</button>
+            </div>
+          </div>
+          <button type="button" class="btn" id="extractBtn" style="width:100%; margin-top:14px; padding:12px; font-size:15px; font-weight:600; background:#0F766E; color:#fff; border:none; border-radius:8px; cursor:pointer">
+            Extract text
+          </button>
+        </div>
+
+        <!-- Status / Error notice banner -->
+        <div id="ocrNotice" style="display:none; margin-bottom:14px"></div>
 
         <label style="font-size:13px; font-weight:600; margin-bottom:6px">Prescription lines (one per line, e.g. Warf 5mg OD):</label>
-        <textarea id="rxLines" rows="7" placeholder="Type medicines here or upload image above..."></textarea>
+        <textarea id="rxLines" rows="7" placeholder="Type medicines here or extract from image above..."></textarea>
       </div>
     </div>
-    <div class="foot"><span></span><button type="button" class="btn" id="toConfirm">Review &amp; Normalize →</button></div>
+    <div class="foot" style="display:flex; flex-direction:column; align-items:stretch; gap:10px; margin-top:20px">
+      <div id="inlineWarn" style="display:none; color:var(--high); background:var(--high-bg); border-left:4px solid var(--high); border:1px solid rgba(181,71,8,0.25); border-radius:var(--ctl); padding:10px 16px; font-size:13.5px; font-weight:600"></div>
+      <div id="rxError" style="display:none; color:var(--crit); background:var(--crit-bg); border:1px solid rgba(180,35,24,0.3); border-radius:var(--ctl); padding:10px 16px; font-size:13.5px; font-weight:600"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <span style="font-size:12.5px; color:var(--muted)">All checks run deterministically against verified knowledge base.</span>
+        <button type="button" class="btn" id="toConfirm">Review &amp; Normalize →</button>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -281,7 +312,13 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const SEVC={contraindicated:"crit",major:"high",moderate:"mod",minor:"low",unknown:"low"};
 const GC={Safe:"#0F766E",Caution:"#B54708",Warning:"#B54708","High Risk":"#B42318",Critical:"#B42318"};
+
+/* FIX 1: ALL state declarations moved to top — fixes "Cannot access 'pending'
+   before initialization" TDZ crash that aborted the whole script block */
 let lastReport=null;
+let pending=null;
+let selectedImageFile=null;
+let imageExtracted=false;
 
 /* nav */
 const STAGES = ["scr-patient", "scr-confirm", "scr-results"];
@@ -303,6 +340,10 @@ function updateSteps(currentStageId) {
 }
 
 function show(id){
+  const target=document.getElementById(id);
+  if(!target){
+    id="scr-patient";
+  }
   $$(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
   $$("[data-nav]").forEach(b=>b.classList.toggle("on",(id==="scr-home")==(b.dataset.nav==="home")));
   updateSteps(id);
@@ -320,71 +361,91 @@ $$(".seg3").forEach(g=>g.addEventListener("click",e=>{
   if(e.target.tagName!=="BUTTON")return;
   $$("#"+g.id+" button").forEach(b=>b.classList.remove("on")); e.target.classList.add("on");}));
 
+function setSeg(id,i){$$("#"+id+" button").forEach((b,j)=>b.classList.toggle("on",i===j))}
+function segVal(id){return $$("#"+id+" button").findIndex(b=>b.classList.contains("on"))}
+
+function clearErrors(){
+  $("#pAge").style.borderColor="";
+  $("#pWt").style.borderColor="";
+  $("#pGender").style.outline="";
+  $("#rxLines").style.borderColor="";
+  const errBox=$("#rxError");
+  if(errBox) errBox.style.display="none";
+  const warnBox=document.getElementById("inlineWarn");
+  if(warnBox) warnBox.style.display="none";
+}
+
+function showInlineWarn(msg){
+  const box = document.getElementById("inlineWarn") || document.getElementById("rxError");
+  if(box){
+    box.innerHTML = `⚠ <b>Notice:</b> ${esc(msg)}`;
+    box.style.display = "block";
+    box.scrollIntoView({behavior:"smooth", block:"center"});
+  }
+}
+
+function showValidationMsg(msg, targetEl){
+  showInlineWarn(msg);
+  if(targetEl){
+    targetEl.style.borderColor="var(--crit)";
+    targetEl.focus();
+    targetEl.scrollIntoView({behavior:"smooth", block:"center"});
+  }
+}
+
 /* med rows */
 function medRow(n="",d="",f=""){
   const r=document.createElement("div");r.className="medrow";
   r.innerHTML=`<input placeholder="Medicine (e.g. Warfarin)" value="${esc(n)}"><input placeholder="Dose (e.g. 5mg)" value="${esc(d)}"><input placeholder="Frequency (e.g. OD)" value="${esc(f)}"><button type="button" title="Remove">×</button>`;
   r.querySelector("button").onclick=()=>{ r.remove(); pending=null; };
-  r.querySelectorAll("input").forEach(inp=>inp.addEventListener("input",()=>{ pending=null; }));
+  r.querySelectorAll("input").forEach(inp=>inp.addEventListener("input",()=>{ clearErrors(); pending=null; }));
   $("#medList").appendChild(r);
   pending=null;
 }
 $("#addMed").onclick=()=>medRow();
 
 function clearInputs(){
-  $("#pAge").value="";
-  $("#pWt").value="";
-  $$("#pGender button").forEach(b=>b.classList.remove("on"));
+  $("#pAge").value="58";
+  $("#pWt").value="72";
+  setSeg("pGender",0);
   $("#pAllergy").value="";
   setSeg("pAllergyState",0);
   setSeg("pKidney",0);
   setSeg("pLiver",0);
   $("#medList").innerHTML="";
   $("#rxLines").value="";
+  clearErrors();
+  if(typeof clearImageSelection === "function") clearImageSelection();
   pending=null;
 }
 clearInputs();
-function setSeg(id,i){$$("#"+id+" button").forEach((b,j)=>b.classList.toggle("on",i===j))}
-function segVal(id){return $$("#"+id+" button").findIndex(b=>b.classList.contains("on"))}
 
 function validatePatientStep(silent=false){
-  const age=$("#pAge").value.trim();
-  const wt=$("#pWt").value.trim();
-  const gIdx=segVal("pGender");
-  if(!age){
-    if(!silent){
-      alert("Please enter the patient's Age before proceeding.");
-      show("scr-patient");
-      $("#pAge").focus();
-    }
-    return false;
-  }
-  if(!wt){
-    if(!silent){
-      alert("Please enter the patient's Weight before proceeding.");
-      show("scr-patient");
-      $("#pWt").focus();
-    }
-    return false;
-  }
-  if(gIdx===-1){
-    if(!silent){
-      alert("Please select the patient's Gender before proceeding.");
-      show("scr-patient");
-    }
-    return false;
-  }
+  clearErrors();
   return true;
+}
+
+function getCurrentPatient(){
+  const aState=segVal("pAllergyState");
+  let allergies=[];
+  const allergyInput = $("#pAllergy");
+  if(aState===2 || (aState===0 && allergyInput && allergyInput.value.trim())){
+    allergies=allergyInput.value.split(",").map(s=>s.trim()).filter(Boolean);
+  }
+  const ageVal = parseInt($("#pAge")?.value, 10);
+  const wtVal = parseFloat($("#pWt")?.value);
+  return {
+    age: isNaN(ageVal) ? 58 : ageVal,
+    weight_kg: isNaN(wtVal) ? 72 : wtVal,
+    allergies,
+    kidney_impairment:segVal("pKidney")===2,
+    liver_impairment:segVal("pLiver")===2
+  };
 }
 
 /* patient -> payload */
 function patient(){
-  const aState=segVal("pAllergyState");
-  let allergies=[];
-  if(aState===2 || (aState===0 && $("#pAllergy").value.trim())){
-    allergies=$("#pAllergy").value.split(",").map(s=>s.trim()).filter(Boolean);
-  }
-  return {allergies, kidney_impairment:segVal("pKidney")===2, liver_impairment:segVal("pLiver")===2};
+  return getCurrentPatient();
 }
 
 function getAllLines(){
@@ -407,7 +468,8 @@ function getPatientSummaryHtml(){
   const wt=$("#pWt").value.trim()||"Unknown";
   const gBtns=$$("#pGender button");
   const gIdx=gBtns.findIndex(b=>b.classList.contains("on"));
-  const gender=(gIdx>0 && gBtns[gIdx])?gBtns[gIdx].textContent:"Unknown";
+  /* FIX 4: gIdx>0 → gIdx>=0 so "F" (index 0) shows correctly instead of "Unknown" */
+  const gender=(gIdx>=0 && gBtns[gIdx])?gBtns[gIdx].textContent:"Unknown";
   const aVal=$("#pAllergy").value.trim();
   const allergies=aVal||(segVal("pAllergyState")===1?"None reported":"Unknown");
   const kidney=segVal("pKidney")===2?"Impaired":(segVal("pKidney")===1?"Normal":"Unknown");
@@ -418,30 +480,43 @@ function getPatientSummaryHtml(){
 }
 
 /* health */
-fetch("/health").then(r=>r.json()).then(h=>$("#kbPill").textContent=`KB: ${h.drugs} drugs · ${h.interactions.toLocaleString()} interactions`).catch(()=>{});
+fetch("/health").then(r=>r.json()).then(h=>{
+  if(h && h.drugs && h.interactions){
+    $("#kbPill").textContent=`KB: ${h.drugs} drugs · ${h.interactions.toLocaleString()} interactions`;
+  }
+}).catch(()=>{});
 
 /* stage 2 -> 3 : call /analyze once, show normalization, then results */
-let pending=null;
+/* FIX 2: duplicate "let pending=null;" removed from here — now declared at top */
 
 async function goToConfirm(){
-  if(!validatePatientStep()) return;
-  const {allLines}=getAllLines();
+  const rxLinesEl = document.getElementById("rxLines");
+  const { allLines } = getAllLines();
+
   if(!allLines.length){
-    alert("Please enter at least one medicine in Current Medicines or Proposed Medicines.");
-    show("scr-rx");
-    $("#rxLines").focus();
+    if(selectedImageFile && !imageExtracted){
+      showInlineWarn("Extract text from your image first, or type the medicines manually.");
+      const extractBtn = document.getElementById("extractBtn");
+      if(extractBtn) extractBtn.scrollIntoView({behavior:"smooth", block:"center"});
+    } else {
+      showInlineWarn("Enter at least one medicine line, or extract from image first.");
+      if(rxLinesEl) rxLinesEl.focus();
+    }
+    show("scr-patient");
     return;
   }
+  clearErrors();
   if(!pending){
-    $("#toConfirm").textContent="Normalizing…";
+    const toConfirmBtn = document.getElementById("toConfirm");
+    if(toConfirmBtn) toConfirmBtn.textContent="Reviewing & Normalizing…";
     try{
       pending=await api(allLines);
     }catch(e){
-      alert("Analysis failed: "+e.message);
-      show("scr-rx");
+      showInlineWarn("Analysis failed: "+e.message);
+      show("scr-patient");
       return;
     }finally{
-      $("#toConfirm").textContent="Review & normalize →";
+      if(toConfirmBtn) toConfirmBtn.textContent="Review & Normalize →";
     }
   }
   renderConfirm(pending);
@@ -449,40 +524,44 @@ async function goToConfirm(){
 }
 
 async function goToResults(){
-  if(!validatePatientStep()) return;
   const {allLines}=getAllLines();
   if(!allLines.length){
-    alert("Please enter at least one medicine in Current Medicines or Proposed Medicines.");
-    show("scr-rx");
-    $("#rxLines").focus();
+    showInlineWarn("Enter at least one medicine line, or extract from image first.");
+    show("scr-patient");
     return;
   }
+  clearErrors();
   if(!pending){
-    $("#toConfirm").textContent="Analyzing…";
-    $("#runAnalysis").textContent="Analyzing…";
+    const runBtn = document.getElementById("runAnalysis");
+    if(runBtn) runBtn.textContent="Analyzing…";
     try{
       pending=await api(allLines);
       renderConfirm(pending);
     }catch(e){
-      alert("Analysis failed: "+e.message);
-      show("scr-rx");
+      showInlineWarn("Analysis failed: "+e.message);
+      show("scr-patient");
       return;
     }finally{
-      $("#toConfirm").textContent="Review & normalize →";
-      $("#runAnalysis").textContent="Run safety analysis →";
+      if(runBtn) runBtn.textContent="Run safety analysis →";
     }
   }
   renderResults(pending);
   show("scr-results");
 }
 
-$("#toConfirm").onclick=()=>goToConfirm();
+document.getElementById("toConfirm").addEventListener("click", async () => {
+  await goToConfirm();
+});
 
 async function api(lines){
   const r=await fetch("/analyze",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({lines,patient:patient()})});
-  if(!r.ok)throw new Error((await r.json()).detail||r.statusText);
-  return r.json();}
+    body:JSON.stringify({lines,patient:getCurrentPatient()})});
+  if(!r.ok){
+    const err = await r.json().catch(()=>({}));
+    throw new Error(err.detail||r.statusText);
+  }
+  return r.json();
+}
 
 function renderConfirm(rep){
   $("#confPatientContext").innerHTML=getPatientSummaryHtml();
@@ -509,9 +588,27 @@ $$(".steps").forEach(bar=>{
   });
 });
 
-$("#rxLines").addEventListener("input",()=>{ pending=null; });
-$("#pAge").addEventListener("input",()=>{ pending=null; });
-$("#pWt").addEventListener("input",()=>{ pending=null; });
+$("#rxLines").addEventListener("input",()=>{
+  $("#rxLines").style.borderColor="";
+  const err=$("#rxError"); if(err) err.style.display="none";
+  const warn=document.getElementById("inlineWarn"); if(warn) warn.style.display="none";
+  pending=null;
+});
+$("#pAge").addEventListener("input",()=>{
+  $("#pAge").style.borderColor="";
+  const err=$("#rxError"); if(err) err.style.display="none";
+  pending=null;
+});
+$("#pWt").addEventListener("input",()=>{
+  $("#pWt").style.borderColor="";
+  const err=$("#rxError"); if(err) err.style.display="none";
+  pending=null;
+});
+$("#pGender").addEventListener("click",()=>{
+  $("#pGender").style.outline="";
+  const err=$("#rxError"); if(err) err.style.display="none";
+  pending=null;
+});
 $("#pAllergy").addEventListener("input",()=>{
   if($("#pAllergy").value.trim()){
     setSeg("pAllergyState",2);
@@ -523,44 +620,210 @@ $("#pAllergy").addEventListener("input",()=>{
 $$(".seg3").forEach(g=>g.addEventListener("click",()=>{ pending=null; }));
 
 /* image upload / OCR */
-const dropzone=$("#ocrDropzone"), fileInput=$("#rxImageInput"), ocrStatus=$("#ocrStatus");
-dropzone.onclick=()=>fileInput.click();
-dropzone.ondragover=e=>{ e.preventDefault(); dropzone.style.borderColor="var(--primary)"; };
-dropzone.ondragleave=()=>{ dropzone.style.borderColor="var(--border)"; };
-dropzone.ondrop=e=>{
-  e.preventDefault();
-  dropzone.style.borderColor="var(--border)";
-  if(e.dataTransfer.files.length) handleImageUpload(e.dataTransfer.files[0]);
-};
-fileInput.onchange=()=>{
-  if(fileInput.files.length) handleImageUpload(fileInput.files[0]);
-};
+const dropzoneEl = document.getElementById("dropzone");
+const fileInput = document.getElementById("rxImageInput");
+const previewCard = document.getElementById("imgPreviewCard");
+const imgThumb = document.getElementById("imgThumb");
+const fileNameEl = document.getElementById("fileName");
+const fileSizeEl = document.getElementById("fileSize");
+const removeBtn = document.getElementById("removeBtn");
+const extractBtn = document.getElementById("extractBtn");
+const ocrNotice = document.getElementById("ocrNotice");
 
-async function handleImageUpload(file){
-  if(!file) return;
-  ocrStatus.style.display="block";
-  ocrStatus.className="warn";
-  ocrStatus.innerHTML=`⏳ <b>Scanning prescription image (${esc(file.name)})…</b> Extracting text via OCR…`;
-  const fd=new FormData();
-  fd.append("image", file);
-  try{
-    const res=await fetch("/ocr/extract",{method:"POST", body:fd});
-    if(!res.ok) throw new Error((await res.json()).detail || res.statusText);
-    const data=await res.json();
-    if(data.lines && data.lines.length){
-      const existing=$("#rxLines").value.trim();
-      $("#rxLines").value=existing ? existing+"\n"+data.lines.join("\n") : data.lines.join("\n");
-      ocrStatus.className="pcontext-bar";
-      ocrStatus.innerHTML=`✔ <b>Extracted ${data.lines.length} lines from ${esc(file.name)}:</b> Added to proposed medicines below. You can review or edit any line before continuing.`;
-      pending=null;
-    } else {
-      ocrStatus.className="warn";
-      ocrStatus.innerHTML=`⚠ <b>No legible text detected in ${esc(file.name)}.</b> Please ensure the image is clear, or type the prescription lines manually below.`;
-    }
-  }catch(err){
-    ocrStatus.className="warn";
-    ocrStatus.innerHTML=`❌ <b>OCR error:</b> ${esc(err.message)}. You can type lines directly below.`;
+/* FIX 3: duplicate "let selectedImageFile" / "let imageExtracted" removed — now declared at top */
+
+function showOcrWarning(msg){
+  if(!ocrNotice) return;
+  ocrNotice.className = "warn";
+  ocrNotice.style.display = "block";
+  ocrNotice.innerHTML = `⚠ ${esc(msg)}`;
+}
+
+function showOcrSuccess(msg){
+  if(!ocrNotice) return;
+  ocrNotice.className = "pcontext-bar";
+  ocrNotice.style.display = "block";
+  ocrNotice.style.borderLeft = "4px solid var(--primary)";
+  ocrNotice.innerHTML = `✔ <b>${esc(msg)}</b>`;
+}
+
+function hideOcrNotice(){
+  if(ocrNotice) ocrNotice.style.display = "none";
+}
+
+function clearImageSelection(){
+  selectedImageFile = null;
+  imageExtracted = false;
+  if(fileInput) fileInput.value = "";
+  if(previewCard) previewCard.style.display = "none";
+  if(dropzoneEl) dropzoneEl.style.display = "block";
+  if(extractBtn) {
+    extractBtn.disabled = false;
+    extractBtn.textContent = "Extract text";
   }
+}
+
+function handleImageFile(file){
+  hideOcrNotice();
+  if(!file) return;
+
+  const validTypes = ["image/png", "image/jpeg", "image/webp"];
+  const validExts = [".png", ".jpg", ".jpeg", ".webp"];
+  const name = (file.name || "").toLowerCase();
+  const hasExt = validExts.some(ext => name.endsWith(ext));
+  const hasType = validTypes.includes(file.type);
+
+  if(!hasType && !hasExt){
+    clearImageSelection();
+    showOcrWarning("Unsupported file format. Please upload a PNG, JPG, or WEBP image.");
+    return;
+  }
+
+  const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+  if(file.size > MAX_SIZE){
+    clearImageSelection();
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    showOcrWarning(`File is too large (${sizeMb}MB). Maximum allowed size is 10MB.`);
+    return;
+  }
+
+  selectedImageFile = file;
+  imageExtracted = false;
+
+  if(fileNameEl) fileNameEl.textContent = file.name || "prescription.png";
+  if(fileSizeEl){
+    const kb = Math.round(file.size / 1024);
+    fileSizeEl.textContent = kb > 1024 ? (file.size / (1024 * 1024)).toFixed(1) + " MB" : kb + " KB";
+  }
+  if(imgThumb){
+    try {
+      imgThumb.src = URL.createObjectURL(file);
+    } catch(e) {
+      const reader = new FileReader();
+      reader.onload = ev => { imgThumb.src = ev.target.result; };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  if(dropzoneEl) dropzoneEl.style.display = "none";
+  if(previewCard) previewCard.style.display = "block";
+
+  if(extractBtn){
+    extractBtn.disabled = false;
+    extractBtn.textContent = "Extract text";
+  }
+}
+
+if(fileInput){
+  fileInput.addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if(file) handleImageFile(file);
+  });
+}
+
+if(removeBtn){
+  removeBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    clearImageSelection();
+    hideOcrNotice();
+  });
+}
+
+// Drag & drop handlers
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => e.preventDefault());
+
+if(dropzoneEl){
+  dropzoneEl.addEventListener("dragenter", e => {
+    e.preventDefault();
+    dropzoneEl.style.borderColor = "#0F766E";
+    dropzoneEl.style.background = "#E6F4F2";
+  });
+  dropzoneEl.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropzoneEl.style.borderColor = "#0F766E";
+    dropzoneEl.style.background = "#E6F4F2";
+  });
+  dropzoneEl.addEventListener("dragleave", e => {
+    e.preventDefault();
+    dropzoneEl.style.borderColor = "var(--border)";
+    dropzoneEl.style.background = "#FAFDFD";
+  });
+  dropzoneEl.addEventListener("drop", e => {
+    e.preventDefault();
+    dropzoneEl.style.borderColor = "var(--border)";
+    dropzoneEl.style.background = "#FAFDFD";
+    if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+      handleImageFile(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+// Ctrl+V paste from clipboard
+window.addEventListener("paste", e => {
+  if(e.clipboardData && e.clipboardData.files && e.clipboardData.files.length){
+    for(const f of e.clipboardData.files){
+      if(f.type.startsWith("image/")){
+        e.preventDefault();
+        handleImageFile(f);
+        break;
+      }
+    }
+  }
+});
+
+// Extract text button click -> POST /analyze/image
+if(extractBtn){
+  extractBtn.addEventListener("click", async () => {
+    if(!selectedImageFile) return;
+    hideOcrNotice();
+
+    extractBtn.disabled = true;
+    extractBtn.innerHTML = `<span style="display:inline-block; animation:rot 1s linear infinite; margin-right:6px">⏳</span> Extracting…`;
+
+    const fd = new FormData();
+    fd.append("image", selectedImageFile);
+    fd.append("patient", JSON.stringify(getCurrentPatient()));
+
+    try{
+      const resp = await fetch("/analyze/image", { method: "POST", body: fd });
+      if(!resp.ok){
+        const errJson = await resp.json().catch(() => ({}));
+        const detail = errJson.detail || resp.statusText || "";
+        if(resp.status === 503){
+          showOcrWarning("OCR unavailable on this machine — use typed entry below");
+        } else if(resp.status === 422){
+          showOcrWarning(`OCR failed: ${detail}. Try a clearer photo or type the medicines manually.`);
+        } else if(resp.status === 413){
+          showOcrWarning("Image file exceeds 10MB limit. Please upload a smaller image.");
+        } else {
+          showOcrWarning(`OCR failed (${resp.status}): ${detail}`);
+        }
+        return;
+      }
+
+      const data = await resp.json();
+      const rawText = (data.ocr && data.ocr.raw_text) ? data.ocr.raw_text.trim() : "";
+      const linesExtracted = data.ocr ? data.ocr.lines_extracted : 0;
+
+      if(rawText){
+        document.getElementById("rxLines").value = rawText;
+        document.getElementById("rxLines").style.borderColor = "";
+        clearErrors();
+        pending = null;
+        imageExtracted = true;
+        const count = linesExtracted || rawText.split("\n").filter(s => s.trim()).length;
+        showOcrSuccess(`✔ Extracted ${count} lines via OCR — review and edit before continuing`);
+      } else {
+        showOcrWarning("No legible text detected in prescription image. Try a clearer photo or type the medicines manually.");
+      }
+    } catch(err){
+      showOcrWarning(`OCR failed: ${err.message}. Try a clearer photo or type the medicines manually.`);
+    } finally {
+      extractBtn.disabled = false;
+      extractBtn.textContent = "Extract text";
+    }
+  });
 }
 
 /* results */
