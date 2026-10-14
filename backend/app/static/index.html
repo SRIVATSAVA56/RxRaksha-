@@ -37,6 +37,18 @@ header{background:var(--card); border-bottom:1px solid var(--border); position:s
 .notice-box.err{background:var(--crit-bg); color:var(--crit); border:1px solid #FDA29B}
 .notice-box.warn{background:var(--high-bg); color:#7A3A05; border:1px solid #FEDF89}
 .notice-box.info{background:#EFF8FF; color:#175CD3; border:1px solid #B2DDFF}
+.notice-box.ok{background:#ECFDF3; color:#027A48; border:1px solid #A6F4C5}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+.shake { animation: shake 0.4s ease-in-out; }
+.vault-file-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid var(--border); border-radius:var(--ctl); margin-bottom:8px; background:#fff; transition:border-color .15s}
+.vault-file-row:hover{border-color:var(--primary)}
+.badge-pdf{border:1px solid #FDA29B; background:#FEF3F2; color:#B42318; border-radius:6px; padding:4px 8px; font-size:11px; font-weight:700}
+.badge-img{border:1px solid #B2DFDB; background:#EBF5F4; color:#0F766E; border-radius:6px; padding:4px 8px; font-size:11px; font-weight:700}
+.badge-rep{border:1px solid #D6BBFB; background:#F9F5FF; color:#6941C6; border-radius:6px; padding:4px 8px; font-size:11px; font-weight:700}
 .hd button{background:none; border:none; color:var(--muted); font-size:14px; padding:6px 4px}
 .hd button:hover{color:var(--primary)}
 .hd button.on{color:var(--primary); font-weight:600; border-bottom:2px solid var(--primary)}
@@ -329,18 +341,53 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
     </div>
     <div class="foot">
       <button class="btn ghost" data-go="scr-patient">← Edit inputs</button>
-      <button class="btn ghost" id="newReview">New review</button>
+      <div style="display:flex; gap:10px; flex-wrap:wrap">
+        <button type="button" class="btn ghost" id="saveVaultBtn" style="border-color:var(--primary); color:var(--primary); font-weight:600; width:auto">🔒 Save report to vault</button>
+        <button type="button" class="btn ghost" id="newReview" style="width:auto">New review</button>
+      </div>
     </div>
+    <div id="saveVaultNotice" class="notice-box" style="margin-top:14px"></div>
   </div>
 </section>
 
-<!-- ================= SCREEN: PROFILE VAULT (STUB) ================= -->
+<!-- ================= SCREEN: PROFILE VAULT ================= -->
 <section id="scr-profile" class="screen">
-  <div class="wrap" style="max-width:720px; margin-top:24px">
-    <div class="panel" style="text-align:center; padding:48px 24px">
-      <div style="font-size:36px; margin-bottom:12px">🔒</div>
-      <h2>Profile Vault</h2>
-      <p class="sub" style="margin-bottom:0">Profile Vault loading…</p>
+  <div class="wrap">
+    <div style="margin-top:18px; margin-bottom:20px">
+      <h2>Profile &amp; Vault</h2>
+      <p class="sub">Secure clinician storage for prescription scans, PDFs, and auditable risk reports.</p>
+    </div>
+    <div class="grid2">
+      <!-- LEFT COLUMN: Profile card + Vault PIN card -->
+      <div style="display:flex; flex-direction:column; gap:20px">
+        <!-- Profile Card -->
+        <div class="panel" id="userProfileCard">
+          <div style="display:flex; align-items:center; gap:18px">
+            <div id="profileAvatarContainer"></div>
+            <div>
+              <h3 id="profileName" style="font-size:18px; text-transform:none; letter-spacing:normal; color:var(--text); margin-bottom:3px"></h3>
+              <div id="profileEmail" style="font-size:13px; color:var(--muted); margin-bottom:8px"></div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                <span id="profileProviderBadge"></span>
+                <span id="profileMemberSince" style="font-size:12px; color:var(--muted)"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vault PIN Card -->
+        <div class="panel" id="vaultPinCard">
+          <h3>Vault Security PIN</h3>
+          <div id="pinSectionContent"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: Vault card (TWO STATES) -->
+      <div>
+        <div class="panel" id="vaultMainCard" style="min-height:360px">
+          <!-- Populated dynamically via renderVault() -->
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -375,6 +422,10 @@ let pending = null;
 let selectedImageFile = null;
 let imageExtracted = false;
 let googleClientId = null;
+let vaultStatus = null;
+let vaultFiles = [];
+let unlockTimer = null;
+let unlockedUntil = 0;
 
 /* =========================================================================
    3. AUTH & API FETCH LOGIC
@@ -537,8 +588,13 @@ function show(id) {
   $$(".screen").forEach(s => s.classList.toggle("on", s.id === id));
   if (id === "scr-profile") {
     setActiveNav("navProfile");
+    loadProfileVault();
   } else {
     setActiveNav("navAnalysis");
+    if (unlockTimer) {
+      clearInterval(unlockTimer);
+      unlockTimer = null;
+    }
   }
   updateSteps(id);
   window.scrollTo(0, 0);
@@ -779,11 +835,24 @@ function getPatientSummaryHtml(){
 }
 
 /* health */
-fetch("/health").then(r=>r.json()).then(h=>{
-  if(h && h.drugs && h.interactions){
-    $("#kbPill").textContent=`KB: ${h.drugs} drugs · ${h.interactions.toLocaleString()} interactions`;
+fetch("/health").then(r=>{
+  if(!r.ok) throw new Error("Health check non-ok");
+  return r.json();
+}).then(h=>{
+  const pill=$("#kbPill");
+  if(h && h.drugs && h.interactions && pill){
+    pill.textContent=`KB: ${h.drugs} drugs · ${h.interactions.toLocaleString()} interactions`;
+  } else if(pill){
+    pill.textContent="KB offline";
+    pill.style.color="var(--muted)";
   }
-}).catch(()=>{});
+}).catch(()=>{
+  const pill=$("#kbPill");
+  if(pill){
+    pill.textContent="KB offline";
+    pill.style.color="var(--muted)";
+  }
+});
 
 /* stage 2 -> 3 : call /analyze once, show normalization, then results */
 /* FIX 2: duplicate "let pending=null;" removed from here — now declared at top */
@@ -1126,7 +1195,10 @@ if(extractBtn){
 }
 
 /* results */
-function renderResults(r){lastReport=r;
+function renderResults(r){
+  lastReport=r;
+  const sNotice = document.getElementById("saveVaultNotice");
+  if (sNotice) sNotice.style.display = "none";
   $("#resPatientContext").innerHTML=getPatientSummaryHtml();
   const cov=r.coverage||{}, partial=(cov.status!=="full");
   const b=$("#covBanner");
@@ -1157,7 +1229,739 @@ function renderResults(r){lastReport=r;
       <p style="font-size:14px">${esc(f.mechanism)}</p>
       <details><summary>Reasoning chain (${f.reasoning_chain.length} steps)</summary>
         <ol>${f.reasoning_chain.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></details>
-    </div>`).join("");}
+    </div>`).join("");
+}
+
+/* =========================================================================
+   5. VAULT: SAVE REPORT (from scr-results)
+   ========================================================================= */
+const saveVaultBtn = document.getElementById("saveVaultBtn");
+if (saveVaultBtn) {
+  saveVaultBtn.onclick = async () => {
+    if (!lastReport) return;
+    const notice = document.getElementById("saveVaultNotice");
+    if (notice) notice.style.display = "none";
+    saveVaultBtn.disabled = true;
+    saveVaultBtn.textContent = "Saving…";
+
+    try {
+      const resp = await apiFetch("/vault/save-report", {
+        method: "POST",
+        body: JSON.stringify(lastReport)
+      });
+
+      if (resp.status === 200) {
+        if (notice) {
+          notice.className = "notice-box ok";
+          notice.innerHTML = `✔ Report saved to your vault. <a href="#" id="viewVaultSuccessLink" style="font-weight:600; color:#027A48; text-decoration:underline; margin-left:4px">View it on the Profile Vault page.</a>`;
+          notice.style.display = "block";
+          const link = document.getElementById("viewVaultSuccessLink");
+          if (link) {
+            link.onclick = (e) => {
+              e.preventDefault();
+              show("scr-profile");
+            };
+          }
+        }
+      } else if (resp.status === 423) {
+        if (notice) {
+          notice.className = "notice-box warn";
+          notice.innerHTML = `Your vault is locked — <a href="#" id="unlockVaultPromptLink" style="font-weight:600; color:#7A3A05; text-decoration:underline; margin-left:4px">unlock it on the Profile Vault page</a> to save reports.`;
+          notice.style.display = "block";
+          const link = document.getElementById("unlockVaultPromptLink");
+          if (link) {
+            link.onclick = (e) => {
+              e.preventDefault();
+              show("scr-profile");
+            };
+          }
+        }
+      } else if (resp.status === 401) {
+        // Handled by apiFetch
+      } else {
+        if (notice) {
+          notice.className = "notice-box err";
+          notice.textContent = "Save failed — check your connection.";
+          notice.style.display = "block";
+        }
+      }
+    } catch (err) {
+      if (notice) {
+        notice.className = "notice-box err";
+        notice.textContent = "Save failed — check your connection.";
+        notice.style.display = "block";
+      }
+    } finally {
+      saveVaultBtn.disabled = false;
+      saveVaultBtn.textContent = "🔒 Save report to vault";
+    }
+  };
+}
+
+/* =========================================================================
+   6. PROFILE VAULT FORMATTERS & HELPERS
+   ========================================================================= */
+function formatMemberSince(iso) {
+  if (!iso) return "Member since Jan 2026";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "Member since Jan 2026";
+    const m = d.toLocaleString("en-US", { month: "short" });
+    const y = d.getFullYear();
+    return `Member since ${m} ${y}`;
+  } catch (_) {
+    return "Member since Jan 2026";
+  }
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function formatVaultDate(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit"
+    });
+  } catch (_) {
+    return iso;
+  }
+}
+
+function startCountdownTimer() {
+  if (unlockTimer) clearInterval(unlockTimer);
+  updateCountdownText();
+  unlockTimer = setInterval(updateCountdownText, 30000);
+}
+
+function updateCountdownText() {
+  const el = document.getElementById("autoLockCountdown");
+  if (!el) return;
+  const remSec = Math.max(0, unlockedUntil - Math.floor(Date.now() / 1000));
+  if (remSec <= 0) {
+    if (unlockTimer) { clearInterval(unlockTimer); unlockTimer = null; }
+    vaultStatus = { ...vaultStatus, locked: true };
+    renderLockedState("Vault auto-locked — enter your PIN again.");
+    return;
+  }
+  const mins = Math.ceil(remSec / 60);
+  el.textContent = `Auto-locks in ~${mins} min`;
+}
+
+/* =========================================================================
+   7. PROFILE VAULT CONTROLLER & RENDERING
+   ========================================================================= */
+async function loadProfileVault() {
+  renderProfileCard();
+
+  try {
+    const res = await apiFetch("/vault/status");
+    if (!res.ok) throw new Error("Could not fetch vault status");
+    vaultStatus = await res.json();
+  } catch (err) {
+    vaultStatus = { has_pin: false, locked: true };
+  }
+
+  renderPinSection();
+
+  if (vaultStatus.locked) {
+    renderLockedState();
+  } else {
+    await refreshVaultFilesAndRender();
+  }
+}
+
+function renderProfileCard() {
+  if (!currentUser) return;
+  const avatarContainer = document.getElementById("profileAvatarContainer");
+  const nameEl = document.getElementById("profileName");
+  const emailEl = document.getElementById("profileEmail");
+  const badgeEl = document.getElementById("profileProviderBadge");
+  const sinceEl = document.getElementById("profileMemberSince");
+
+  if (avatarContainer) {
+    if (currentUser.picture) {
+      avatarContainer.innerHTML = `<img src="${esc(currentUser.picture)}" alt="Avatar" style="width:88px; height:88px; border-radius:50%; object-fit:cover; border:2px solid var(--border)" referrerpolicy="no-referrer">`;
+    } else {
+      const inits = getUserInitials(currentUser.name);
+      avatarContainer.innerHTML = `<div style="width:88px; height:88px; border-radius:50%; background:var(--primary); color:#fff; display:grid; place-items:center; font-size:36px; font-weight:700">${esc(inits)}</div>`;
+    }
+  }
+
+  if (nameEl) nameEl.textContent = currentUser.name || "Clinician";
+  if (emailEl) emailEl.textContent = currentUser.email || "—";
+
+  if (badgeEl) {
+    if (currentUser.provider === "google") {
+      badgeEl.innerHTML = `<span style="font-size:11px; font-weight:700; background:#EBF5F4; color:#0F766E; border-radius:999px; padding:3px 10px">Google</span>`;
+    } else {
+      badgeEl.innerHTML = `<span style="font-size:11px; font-weight:700; background:#F1F5F9; color:#526475; border-radius:999px; padding:3px 10px">Demo</span>`;
+    }
+  }
+
+  if (sinceEl) {
+    sinceEl.textContent = formatMemberSince(currentUser.created_at);
+  }
+}
+
+function renderPinSection() {
+  const container = document.getElementById("pinSectionContent");
+  if (!container) return;
+
+  if (!vaultStatus || !vaultStatus.has_pin) {
+    container.innerHTML = `
+      <p style="font-size:13.5px; color:var(--text); margin-bottom:12px">Create a 4–6 digit PIN to secure your vault</p>
+      <label>New PIN (4–6 digits)</label>
+      <input type="password" id="newPin" inputmode="numeric" maxlength="6" placeholder="Enter 4-6 digits">
+      <label style="margin-top:10px">Confirm PIN</label>
+      <input type="password" id="confirmPin" inputmode="numeric" maxlength="6" placeholder="Re-enter PIN">
+      <button type="button" class="btn" id="setPinBtn" style="margin-top:14px">Set PIN</button>
+      <div id="pinNotice" class="notice-box"></div>
+    `;
+
+    const setBtn = document.getElementById("setPinBtn");
+    const p1 = document.getElementById("newPin");
+    const p2 = document.getElementById("confirmPin");
+    const notice = document.getElementById("pinNotice");
+
+    setBtn.onclick = async () => {
+      const v1 = (p1?.value || "").trim();
+      const v2 = (p2?.value || "").trim();
+      if (!/^\d{4,6}$/.test(v1)) {
+        notice.className = "notice-box err";
+        notice.textContent = "PIN must be 4–6 digits";
+        notice.style.display = "block";
+        return;
+      }
+      if (v1 !== v2) {
+        notice.className = "notice-box err";
+        notice.textContent = "PINs don't match";
+        notice.style.display = "block";
+        return;
+      }
+      setBtn.disabled = true;
+      setBtn.textContent = "Setting PIN…";
+      try {
+        const res = await apiFetch("/vault/pin", {
+          method: "POST",
+          body: JSON.stringify({ pin: v1 })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          notice.className = "notice-box err";
+          notice.textContent = err.detail || "Failed to set PIN";
+          notice.style.display = "block";
+          return;
+        }
+        notice.className = "notice-box ok";
+        notice.textContent = "PIN set — your vault is now secured.";
+        notice.style.display = "block";
+        vaultStatus = { ...vaultStatus, has_pin: true };
+        setTimeout(() => {
+          renderPinSection();
+        }, 1200);
+      } catch (err) {
+        notice.className = "notice-box err";
+        notice.textContent = "Error setting PIN: " + err.message;
+        notice.style.display = "block";
+      } finally {
+        setBtn.disabled = false;
+        setBtn.textContent = "Set PIN";
+      }
+    };
+  } else {
+    container.innerHTML = `
+      <p style="font-size:13px; color:#027A48; font-weight:600; margin-bottom:12px">✔ Vault PIN configured</p>
+      <details id="changePinDetails" style="font-size:13px">
+        <summary style="cursor:pointer; color:var(--primary); font-weight:600">Change PIN</summary>
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border)">
+          <label>Current PIN</label>
+          <input type="password" id="currPin" inputmode="numeric" maxlength="6" placeholder="Current PIN">
+          <label style="margin-top:10px">New PIN (4–6 digits)</label>
+          <input type="password" id="changeNewPin" inputmode="numeric" maxlength="6" placeholder="New PIN">
+          <label style="margin-top:10px">Confirm New PIN</label>
+          <input type="password" id="changeConfirmPin" inputmode="numeric" maxlength="6" placeholder="Confirm new PIN">
+          <button type="button" class="btn" id="changePinBtn" style="margin-top:14px">Update PIN</button>
+          <div id="changePinNotice" class="notice-box"></div>
+        </div>
+      </details>
+    `;
+
+    const changeBtn = document.getElementById("changePinBtn");
+    const cp = document.getElementById("currPin");
+    const np = document.getElementById("changeNewPin");
+    const cnp = document.getElementById("changeConfirmPin");
+    const cNotice = document.getElementById("changePinNotice");
+    const details = document.getElementById("changePinDetails");
+
+    changeBtn.onclick = async () => {
+      const cv = (cp?.value || "").trim();
+      const nv = (np?.value || "").trim();
+      const cnv = (cnp?.value || "").trim();
+
+      if (!cv) {
+        cNotice.className = "notice-box err";
+        cNotice.textContent = "Please enter your current PIN";
+        cNotice.style.display = "block";
+        return;
+      }
+      if (!/^\d{4,6}$/.test(nv)) {
+        cNotice.className = "notice-box err";
+        cNotice.textContent = "PIN must be 4–6 digits";
+        cNotice.style.display = "block";
+        return;
+      }
+      if (nv !== cnv) {
+        cNotice.className = "notice-box err";
+        cNotice.textContent = "New PINs don't match";
+        cNotice.style.display = "block";
+        return;
+      }
+
+      changeBtn.disabled = true;
+      changeBtn.textContent = "Updating PIN…";
+
+      try {
+        const unlockRes = await apiFetch("/vault/unlock", {
+          method: "POST",
+          body: JSON.stringify({ pin: cv })
+        });
+        if (unlockRes.status === 401) {
+          const err = await unlockRes.json().catch(() => ({}));
+          cNotice.className = "notice-box err";
+          cNotice.textContent = err.detail || "Incorrect current PIN";
+          cNotice.style.display = "block";
+          return;
+        }
+        if (!unlockRes.ok) {
+          const err = await unlockRes.json().catch(() => ({}));
+          cNotice.className = "notice-box err";
+          cNotice.textContent = err.detail || "Verification failed";
+          cNotice.style.display = "block";
+          return;
+        }
+
+        const pinRes = await apiFetch("/vault/pin", {
+          method: "POST",
+          body: JSON.stringify({ pin: nv })
+        });
+        if (!pinRes.ok) {
+          const err = await pinRes.json().catch(() => ({}));
+          cNotice.className = "notice-box err";
+          cNotice.textContent = err.detail || "Failed to update PIN";
+          cNotice.style.display = "block";
+          return;
+        }
+
+        cNotice.className = "notice-box ok";
+        cNotice.textContent = "PIN updated successfully.";
+        cNotice.style.display = "block";
+        if (cp) cp.value = "";
+        if (np) np.value = "";
+        if (cnp) cnp.value = "";
+        setTimeout(() => {
+          if (details) details.open = false;
+          cNotice.style.display = "none";
+        }, 1500);
+      } catch (err) {
+        cNotice.className = "notice-box err";
+        cNotice.textContent = "Error: " + err.message;
+        cNotice.style.display = "block";
+      } finally {
+        changeBtn.disabled = false;
+        changeBtn.textContent = "Update PIN";
+      }
+    };
+  }
+}
+
+function renderLockedState(noticeMsg = null) {
+  if (unlockTimer) {
+    clearInterval(unlockTimer);
+    unlockTimer = null;
+  }
+  const mainCard = document.getElementById("vaultMainCard");
+  if (!mainCard) return;
+
+  mainCard.innerHTML = `
+    <div style="text-align:center; padding:36px 16px">
+      <div style="width:72px; height:72px; border-radius:50%; background:#F1F5F9; display:grid; place-items:center; margin:0 auto 16px">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
+      <h3 style="font-size:20px; text-transform:none; letter-spacing:normal; margin-bottom:6px; color:var(--text)">Vault locked</h3>
+      <p style="font-size:14px; color:var(--muted); max-width:340px; margin:0 auto 20px">Your prescriptions and reports are hidden until you unlock.</p>
+
+      ${noticeMsg ? `<div class="notice-box warn" style="display:block; max-width:320px; margin:0 auto 16px">${esc(noticeMsg)}</div>` : ""}
+
+      <div style="max-width:280px; margin:0 auto" id="unlockFormBox">
+        <input type="password" id="unlockPinInput" inputmode="numeric" maxlength="6" placeholder="Enter PIN (4–6 digits)" style="text-align:center; font-size:18px; letter-spacing:4px; padding:10px 12px">
+        <button type="button" class="btn" id="unlockBtn" style="margin-top:12px">Unlock</button>
+        <div id="unlockError" class="notice-box err" style="margin-top:10px"></div>
+      </div>
+    </div>
+  `;
+
+  const pinInput = document.getElementById("unlockPinInput");
+  const unlockBtn = document.getElementById("unlockBtn");
+  const unlockBox = document.getElementById("unlockFormBox");
+  const errBox = document.getElementById("unlockError");
+
+  async function doUnlock() {
+    const pin = (pinInput?.value || "").trim();
+    if (!pin) {
+      if (errBox) {
+        errBox.textContent = "Please enter your PIN";
+        errBox.style.display = "block";
+      }
+      return;
+    }
+    if (errBox) errBox.style.display = "none";
+    unlockBtn.disabled = true;
+    unlockBtn.textContent = "Unlocking…";
+
+    try {
+      const res = await apiFetch("/vault/unlock", {
+        method: "POST",
+        body: JSON.stringify({ pin })
+      });
+      if (res.status === 401) {
+        const err = await res.json().catch(() => ({}));
+        if (unlockBox) {
+          unlockBox.classList.remove("shake");
+          void unlockBox.offsetWidth;
+          unlockBox.classList.add("shake");
+        }
+        if (errBox) {
+          errBox.textContent = err.detail || "Incorrect PIN";
+          errBox.style.display = "block";
+        }
+        if (pinInput) pinInput.value = "";
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (errBox) {
+          errBox.textContent = err.detail || "Failed to unlock";
+          errBox.style.display = "block";
+        }
+        return;
+      }
+      const data = await res.json();
+      unlockedUntil = data.unlocked_until || (Math.floor(Date.now() / 1000) + 300);
+      vaultStatus = { ...vaultStatus, locked: false };
+      await refreshVaultFilesAndRender();
+    } catch (e) {
+      if (errBox) {
+        errBox.textContent = e.message || "Unlock error";
+        errBox.style.display = "block";
+      }
+    } finally {
+      if (unlockBtn) {
+        unlockBtn.disabled = false;
+        unlockBtn.textContent = "Unlock";
+      }
+    }
+  }
+
+  if (unlockBtn) unlockBtn.onclick = doUnlock;
+  if (pinInput) {
+    pinInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doUnlock();
+    });
+    pinInput.focus();
+  }
+}
+
+async function refreshVaultFilesAndRender() {
+  try {
+    const res = await apiFetch("/vault/files");
+    if (res.status === 423) {
+      vaultStatus = { ...vaultStatus, locked: true };
+      renderLockedState("Vault auto-locked — enter your PIN again.");
+      return;
+    }
+    if (res.ok) {
+      vaultFiles = await res.json();
+    } else {
+      vaultFiles = [];
+    }
+  } catch (_) {
+    vaultFiles = [];
+  }
+  renderUnlockedState();
+}
+
+function renderUnlockedState() {
+  const mainCard = document.getElementById("vaultMainCard");
+  if (!mainCard) return;
+
+  mainCard.innerHTML = `
+    <!-- Header Row -->
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--border)">
+      <div style="display:flex; align-items:center; gap:8px">
+        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#12B76A"></span>
+        <span style="font-weight:700; color:#027A48; font-size:14px">Unlocked</span>
+        <span id="autoLockCountdown" style="font-size:12.5px; color:var(--muted); margin-left:8px">Auto-locks in ~5 min</span>
+      </div>
+      <button type="button" class="btn ghost" id="lockNowBtn" style="width:auto; padding:6px 14px; font-size:13px; font-weight:600">Lock now</button>
+    </div>
+
+    <!-- Dropzone -->
+    <div id="vaultDropzone" style="border:2px dashed var(--border); border-radius:var(--r); padding:24px 16px; text-align:center; background:#FAFBFD; cursor:pointer; margin-bottom:16px; transition:all .15s">
+      <input type="file" id="vaultFileInput" accept=".pdf,.png,.jpg,.jpeg,.webp" style="display:none">
+      <div style="font-size:24px; margin-bottom:6px">📁</div>
+      <div style="font-size:14px; font-weight:600; color:var(--text)">Drop prescription or PDF here, or <span style="color:var(--primary); text-decoration:underline">browse</span></div>
+      <div style="font-size:12px; color:var(--muted); margin-top:4px">PDF, PNG, JPG, WEBP up to 10MB</div>
+    </div>
+    <div id="vaultUploadNotice" class="notice-box" style="margin-bottom:14px"></div>
+
+    <!-- Files Section -->
+    <h3 style="font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:16px 0 10px">Stored Files</h3>
+    <div id="vaultFileList"></div>
+  `;
+
+  startCountdownTimer();
+
+  const lockBtn = document.getElementById("lockNowBtn");
+  if (lockBtn) {
+    lockBtn.onclick = async () => {
+      try {
+        await apiFetch("/vault/lock", { method: "POST" });
+      } catch (_) {}
+      vaultStatus = { ...vaultStatus, locked: true };
+      renderLockedState();
+    };
+  }
+
+  setupVaultDropzone();
+  renderVaultFileList();
+}
+
+function setupVaultDropzone() {
+  const dz = document.getElementById("vaultDropzone");
+  const fileInput = document.getElementById("vaultFileInput");
+  const notice = document.getElementById("vaultUploadNotice");
+  if (!dz || !fileInput) return;
+
+  dz.onclick = () => fileInput.click();
+
+  ["dragenter", "dragover"].forEach(ev => {
+    dz.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dz.style.borderColor = "var(--primary)";
+      dz.style.background = "#F0FDF4";
+    });
+  });
+
+  ["dragleave", "drop"].forEach(ev => {
+    dz.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dz.style.borderColor = "var(--border)";
+      dz.style.background = "#FAFBFD";
+    });
+  });
+
+  dz.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleVaultFileUpload(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.onchange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleVaultFileUpload(e.target.files[0]);
+      fileInput.value = "";
+    }
+  };
+}
+
+async function handleVaultFileUpload(file) {
+  const notice = document.getElementById("vaultUploadNotice");
+  if (notice) notice.style.display = "none";
+
+  if (file.size > 10 * 1024 * 1024) {
+    if (notice) {
+      notice.className = "notice-box err";
+      notice.textContent = "File exceeds 10MB limit. Please upload a smaller file.";
+      notice.style.display = "block";
+    }
+    return;
+  }
+
+  const validExts = [".pdf", ".png", ".jpg", ".jpeg", ".webp"];
+  const lowerName = file.name.toLowerCase();
+  const isValid = validExts.some(ext => lowerName.endsWith(ext));
+  if (!isValid) {
+    if (notice) {
+      notice.className = "notice-box err";
+      notice.textContent = "Unsupported file type. Allowed: PDF, PNG, JPG, WEBP.";
+      notice.style.display = "block";
+    }
+    return;
+  }
+
+  if (notice) {
+    notice.className = "notice-box info";
+    notice.textContent = "Uploading…";
+    notice.style.display = "block";
+  }
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  try {
+    const res = await apiFetch("/vault/upload", {
+      method: "POST",
+      body: fd
+    });
+    if (res.status === 423) {
+      vaultStatus = { ...vaultStatus, locked: true };
+      renderLockedState("Vault auto-locked — enter your PIN again.");
+      return;
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      if (notice) {
+        notice.className = "notice-box err";
+        notice.textContent = err.detail || "Upload failed.";
+        notice.style.display = "block";
+      }
+      return;
+    }
+    const newEntry = await res.json();
+    vaultFiles.unshift(newEntry);
+    renderVaultFileList();
+    if (notice) {
+      notice.className = "notice-box ok";
+      notice.textContent = `✔ Uploaded ${newEntry.name}`;
+      notice.style.display = "block";
+    }
+  } catch (err) {
+    if (notice) {
+      notice.className = "notice-box err";
+      notice.textContent = "Upload failed: " + err.message;
+      notice.style.display = "block";
+    }
+  }
+}
+
+function renderVaultFileList() {
+  const listEl = document.getElementById("vaultFileList");
+  if (!listEl) return;
+
+  if (!vaultFiles || vaultFiles.length === 0) {
+    listEl.innerHTML = `
+      <div style="text-align:center; padding:32px 16px; color:var(--muted); font-size:13.5px; background:#FAFBFD; border-radius:var(--r); border:1px dashed var(--border)">
+        No files yet — upload a prescription PDF or save an analysis report from the results page.
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = vaultFiles.map((file, idx) => {
+    let iconHtml = "";
+    if (file.kind === "pdf") {
+      iconHtml = `<span class="badge-pdf">📄 PDF</span>`;
+    } else if (file.kind === "report") {
+      iconHtml = `<span class="badge-rep">📊 Report</span>`;
+    } else {
+      iconHtml = `<span class="badge-img">🖼 Image</span>`;
+    }
+
+    const rawName = file.name || "Untitled";
+    const displayName = rawName.length > 40 ? rawName.substring(0, 37) + "…" : rawName;
+    const sizeStr = formatFileSize(file.size_bytes);
+    const dateStr = formatVaultDate(file.uploaded_at);
+
+    return `
+      <div class="vault-file-row" id="vfile-${idx}">
+        <div style="display:flex; align-items:center; gap:12px; min-width:0; flex:1">
+          <div>${iconHtml}</div>
+          <div style="min-width:0; flex:1">
+            <div style="font-size:14px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${esc(rawName)}">${esc(displayName)}</div>
+            <div style="font-size:12px; color:var(--muted)">${esc(sizeStr)} · ${esc(dateStr)}</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-shrink:0">
+          <button type="button" class="btn ghost" style="width:auto; padding:6px 12px; font-size:12.5px" data-open-idx="${idx}">Open</button>
+          <button type="button" class="btn ghost" style="width:auto; padding:6px 12px; font-size:12.5px; color:var(--crit); border-color:#FDA29B" data-del-idx="${idx}">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  listEl.querySelectorAll("[data-open-idx]").forEach(btn => {
+    btn.onclick = async () => {
+      const idx = parseInt(btn.dataset.openIdx, 10);
+      const file = vaultFiles[idx];
+      if (!file) return;
+      btn.disabled = true;
+      const prevText = btn.textContent;
+      btn.textContent = "Loading…";
+      try {
+        const res = await apiFetch(`/vault/files/${encodeURIComponent(file.file_id)}`);
+        if (res.status === 423) {
+          vaultStatus = { ...vaultStatus, locked: true };
+          renderLockedState("Vault auto-locked — enter your PIN again.");
+          return;
+        }
+        if (!res.ok) {
+          alert("Failed to load file (" + res.status + ")");
+          return;
+        }
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        window.open(objUrl, "_blank");
+      } catch (err) {
+        alert("Could not open file: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prevText;
+      }
+    };
+  });
+
+  listEl.querySelectorAll("[data-del-idx]").forEach(btn => {
+    btn.onclick = async () => {
+      const idx = parseInt(btn.dataset.delIdx, 10);
+      const file = vaultFiles[idx];
+      if (!file) return;
+      if (!confirm(`Delete "${file.name}"?`)) return;
+
+      btn.disabled = true;
+      btn.textContent = "…";
+      try {
+        const res = await apiFetch(`/vault/files/${encodeURIComponent(file.file_id)}`, {
+          method: "DELETE"
+        });
+        if (res.status === 423) {
+          vaultStatus = { ...vaultStatus, locked: true };
+          renderLockedState("Vault auto-locked — enter your PIN again.");
+          return;
+        }
+        if (!res.ok) {
+          alert("Failed to delete file");
+          return;
+        }
+        vaultFiles.splice(idx, 1);
+        renderVaultFileList();
+      } catch (err) {
+        alert("Delete failed: " + err.message);
+      }
+    };
+  });
+}
 
 // Initialize auth
 initAuth();
