@@ -26,6 +26,7 @@ from app.scoring.engine import score as score_report
 from app.explain.templates import explain_findings, explain_summary
 from app.explain.summarizer import generate, attach_verified, Verification
 from app.auth import router as auth_router, get_current_user
+from app.vault import router as vault_router
 
 try:
     import pytesseract
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="RxRaksha API", version="0.5.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth_router)
+app.include_router(vault_router)
 
 STATIC = Path(__file__).resolve().parent / "static"
 
