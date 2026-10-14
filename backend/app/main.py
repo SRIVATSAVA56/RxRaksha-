@@ -77,7 +77,10 @@ except Exception:
 # ---------- schemas ----------
 
 class PatientProfile(BaseModel):
+    age: int | None = 58
+    weight_kg: float | None = 72.0
     allergies: list[str] = Field(default_factory=list)
+    allergy_state: str = "unknown"
     kidney_impairment: bool = False
     liver_impairment: bool = False
 

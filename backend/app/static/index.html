@@ -793,8 +793,9 @@ function getCurrentPatient(){
     age: isNaN(ageVal) ? 58 : ageVal,
     weight_kg: isNaN(wtVal) ? 72 : wtVal,
     allergies,
-    kidney_impairment:segVal("pKidney")===2,
-    liver_impairment:segVal("pLiver")===2
+    allergy_state: ["unknown", "none", "listed"][segVal("pAllergyState")] || "unknown",
+    kidney_impairment: segVal("pKidney")===2,
+    liver_impairment: segVal("pLiver")===2
   };
 }
 
@@ -880,6 +881,7 @@ async function goToConfirm(){
     try{
       pending=await api(allLines);
     }catch(e){
+      console.error("Analysis failed:", e);
       showInlineWarn("Analysis failed: "+e.message);
       show("scr-patient");
       return;
@@ -906,6 +908,7 @@ async function goToResults(){
       pending=await api(allLines);
       renderConfirm(pending);
     }catch(e){
+      console.error("Analysis failed:", e);
       showInlineWarn("Analysis failed: "+e.message);
       show("scr-patient");
       return;
