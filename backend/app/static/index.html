@@ -3,230 +3,394 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RxRaksha — Prescription Safety Report</title>
+<title>RxRaksha — Prescription Safety Decision Support</title>
 <style>
-  :root{
-    --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --text:#e2e8f0; --muted:#94a3b8;
-    --safe:#22c55e; --caution:#eab308; --warning:#f97316; --high:#ef4444; --critical:#dc2626;
-    --unknown:#64748b; --accent:#38bdf8;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
-  header{padding:14px 22px;background:var(--panel);border-bottom:1px solid #334155;display:flex;align-items:center;gap:12px}
-  header h1{font-size:18px;margin:0;letter-spacing:.3px}
-  header .tag{font-size:11px;color:var(--muted);border:1px solid #334155;padding:2px 8px;border-radius:99px}
-  main{display:grid;grid-template-columns:420px 1fr;gap:16px;padding:16px;max-width:1300px;margin:0 auto}
-  .card{background:var(--panel);border:1px solid #334155;border-radius:10px;padding:16px}
-  label{font-size:12px;color:var(--muted);display:block;margin:10px 0 4px}
-  textarea,input[type=text]{width:100%;background:var(--panel2);border:1px solid #334155;color:var(--text);
-    border-radius:8px;padding:9px;font:inherit}
-  textarea{min-height:150px;resize:vertical}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
-  .row>div{flex:1;min-width:120px}
-  .chk{display:flex;align-items:center;gap:6px;margin-top:14px;font-size:13px}
-  button{margin-top:14px;width:100%;padding:11px;background:var(--accent);color:#082f49;border:0;
-    border-radius:8px;font-weight:700;cursor:pointer;font-size:15px}
-  button:disabled{opacity:.5;cursor:wait}
-  /* report */
-  .gauge-wrap{display:flex;align-items:center;gap:20px}
-  .gauge{--v:100;--c:var(--safe);width:130px;height:130px;border-radius:50%;flex:none;
-    background:conic-gradient(var(--c) calc(var(--v)*1%), #334155 0);display:grid;place-items:center}
-  .gauge>div{width:100px;height:100px;border-radius:50%;background:var(--panel);display:grid;place-items:center;text-align:center}
-  .gauge .num{font-size:30px;font-weight:800}
-  .gauge .of{font-size:10px;color:var(--muted)}
-  .band{font-size:20px;font-weight:800}
-  .action{color:var(--muted);font-size:13px;margin-top:4px}
-  .cap{font-size:12px;color:var(--caution);margin-top:6px}
-  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
-  .badge{font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid #334155;background:var(--panel2)}
-  .badge.ok{color:var(--safe);border-color:var(--safe)}
-  .badge.skip{color:var(--unknown);border-color:var(--unknown)}
-  .badge.warn{color:var(--caution);border-color:var(--caution)}
-  .finding{margin-top:12px;border:1px solid #334155;border-left:5px solid var(--unknown);
-    border-radius:8px;background:var(--panel2);padding:12px}
-  .finding.major,.finding.contraindicated{border-left-color:var(--high)}
-  .finding.moderate{border-left-color:var(--caution)}
-  .finding.minor{border-left-color:var(--accent)}
-  .finding .head{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
-  .finding .title{font-weight:700}
-  .sev{font-size:10px;font-weight:800;text-transform:uppercase;padding:2px 8px;border-radius:99px;white-space:nowrap}
-  .sev.major,.sev.contraindicated{background:#7f1d1d;color:#fecaca}
-  .sev.moderate{background:#713f12;color:#fde68a}
-  .sev.minor{background:#0c4a6e;color:#bae6fd}
-  .sev.unknown{background:#334155;color:#cbd5e1}
-  .mech{font-size:13px;color:var(--muted);margin-top:6px}
-  details{margin-top:8px;font-size:12.5px}
-  summary{cursor:pointer;color:var(--accent)}
-  .chain{margin:8px 0 0 4px;padding-left:14px;border-left:2px solid #334155}
-  .chain li{margin:4px 0;color:var(--text)}
-  .meta{font-size:11px;color:var(--muted);margin-top:6px}
-  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #334155}
-  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
-  .review{color:var(--caution);font-weight:700}
-  .unmatched{color:var(--high);font-weight:700}
-  .ledger td:last-child{text-align:right;font-variant-numeric:tabular-nums}
-  .neg{color:var(--high)} .zero{color:var(--muted)}
-  .summary-box{margin-top:12px;padding:12px;border-radius:8px;background:var(--panel2);
-    border:1px solid #334155;font-size:13.5px}
-  .ai{border:1px dashed var(--caution);margin-top:10px;padding:10px;border-radius:8px;font-size:13px}
-  .ai .who{font-size:11px;color:var(--caution)}
-  .disclaimer{margin-top:14px;font-size:11.5px;color:var(--muted);text-align:center}
-  .err{color:var(--high);font-size:13px;margin-top:10px;white-space:pre-wrap}
-  h3{margin:0 0 8px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-  @media (max-width:900px){main{grid-template-columns:1fr}}
+:root{
+  --bg:#F5F8FA; --card:#FFFFFF; --primary:#0F766E; --primary-h:#115E59;
+  --text:#102A43; --muted:#526475; --border:#D8E2EA;
+  --crit:#B42318; --crit-bg:#FEF3F2; --high:#B54708; --high-bg:#FFF4E5;
+  --mod:#854A0E; --mod-bg:#FFFBEB; --low:#475569; --low-bg:#F1F5F9;
+  --r:12px; --ctl:8px;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); line-height:1.5}
+button{font:inherit; cursor:pointer}
+input,textarea{font:inherit; width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--ctl); background:#fff; color:var(--text)}
+input:focus,textarea:focus,button:focus-visible{outline:2px solid var(--primary); outline-offset:2px}
+.wrap{max-width:1120px; margin:0 auto; padding:0 20px}
+
+/* ---------- shell ---------- */
+header{background:var(--card); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10}
+.hd{display:flex; align-items:center; gap:14px; height:58px}
+.logo{display:flex; align-items:center; gap:8px; font-weight:700; font-size:17px; color:var(--primary)}
+.logo svg{width:24px;height:24px}
+.pill{font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:3px 10px}
+.badge-syn{font-size:12px; font-weight:600; color:var(--mod); background:var(--mod-bg); border-radius:999px; padding:3px 10px}
+.hd .sp{flex:1}
+.hd button{background:none; border:none; color:var(--muted); font-size:14px; padding:6px 4px}
+.hd button:hover{color:var(--primary)}
+.hd button.on{color:var(--primary); font-weight:600; border-bottom:2px solid var(--primary)}
+.disc{background:#FFF8E6; color:#6B4E00; font-size:13px; text-align:center; padding:6px 12px; border-bottom:1px solid #EFE3B8}
+
+/* ---------- steps ---------- */
+.steps{display:flex; gap:4px; justify-content:center; padding:16px 0 0; font-size:13px; color:var(--muted)}
+.steps span{padding:5px 14px; border-radius:999px; border:1px solid var(--border); background:var(--card)}
+.steps span.on{background:var(--primary); color:#fff; border-color:var(--primary); font-weight:600}
+.steps span.done{color:var(--primary); border-color:var(--primary)}
+
+/* ---------- hero (login-remake) ---------- */
+.hero{min-height:calc(100vh - 100px); display:flex; align-items:center; justify-content:center; padding:40px 20px;
+  background-image:radial-gradient(#cfe6e2 1.5px, transparent 1.5px); background-size:26px 26px}
+.hero-card{background:var(--card); border:1px solid var(--border); border-radius:20px; box-shadow:0 10px 40px rgba(16,42,67,.08);
+  max-width:440px; width:100%; padding:44px 40px; text-align:center}
+.hero-card .logo{justify-content:center; font-size:19px}
+.hero-card h1{font-size:28px; margin:22px 0 8px; line-height:1.25}
+.hero-card p{color:var(--muted); font-size:15px; margin-bottom:26px}
+.seg{display:flex; background:#F1F5F7; border-radius:12px; padding:4px; margin-bottom:26px}
+.seg button{flex:1; border:none; background:none; padding:10px; border-radius:9px; color:var(--muted); font-weight:600}
+.seg button.on{background:#fff; color:var(--primary); box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.btn{display:block; width:100%; border:none; border-radius:10px; padding:14px; font-weight:600; font-size:15px;
+  background:var(--primary); color:#fff; transition:background .15s}
+.btn:hover{background:var(--primary-h)}
+.btn.ghost{background:#fff; color:var(--text); border:1px solid var(--border)}
+.btn.ghost:hover{border-color:var(--primary); color:var(--primary)}
+.or{display:flex; align-items:center; gap:12px; color:var(--muted); font-size:12px; margin:22px 0 16px; letter-spacing:.08em}
+.or::before,.or::after{content:""; flex:1; height:1px; background:var(--border)}
+.hero-note{margin-top:20px; font-size:12px; color:var(--muted)}
+.flow3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; max-width:860px; margin:0 auto; padding:8px 20px 48px}
+.flow3 div{background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px}
+.flow3 b{display:block; margin-bottom:6px; color:var(--primary); font-size:14px}
+.flow3 span{font-size:13px; color:var(--muted)}
+
+/* ---------- workspace ---------- */
+.screen{padding:26px 0 60px; display:none}
+.screen.on{display:block}
+h2{font-size:22px; margin-bottom:4px}
+.sub{color:var(--muted); font-size:14px; margin-bottom:20px}
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.panel{background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:22px}
+.panel h3{font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px}
+label{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
+.row3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px}
+.chk{display:flex; align-items:center; gap:8px; font-size:14px; margin-top:14px}
+.chk input{width:auto}
+.seg3{display:flex; gap:6px; margin-top:4px}
+.seg3 button{flex:1; border:1px solid var(--border); background:#fff; border-radius:var(--ctl); padding:8px 4px; font-size:13px; color:var(--muted)}
+.seg3 button.on{background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600}
+.medrow{display:grid; grid-template-columns:2fr 1fr 1fr 34px; gap:8px; margin-bottom:8px}
+.medrow button{border:1px solid var(--border); background:#fff; border-radius:var(--ctl); color:var(--crit); font-weight:700}
+.addrow{margin-top:6px; background:none; border:1px dashed var(--border); border-radius:var(--ctl); width:100%; padding:9px; color:var(--primary); font-weight:600}
+.addrow:hover{border-color:var(--primary)}
+.foot{display:flex; justify-content:space-between; margin-top:22px}
+.foot .btn{width:auto; padding:12px 30px}
+
+/* ---------- confirm ---------- */
+table{width:100%; border-collapse:collapse; font-size:14px}
+th{font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); text-align:left; padding:8px 10px; border-bottom:2px solid var(--border)}
+td{padding:10px; border-bottom:1px solid var(--border); vertical-align:top}
+tr.unres td{background:#FFF8E6}
+.tag{display:inline-block; font-size:11px; font-weight:700; border-radius:999px; padding:2px 9px}
+.tag.ok{background:var(--low-bg); color:var(--low)}
+.tag.unres{background:var(--mod-bg); color:var(--mod)}
+.warn{border-left:4px solid var(--high); background:var(--high-bg); color:#7A3A05; padding:12px 16px; border-radius:8px; font-size:14px; margin:16px 0}
+
+/* ---------- results ---------- */
+.banner{display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; background:var(--card); border:1px solid var(--border);
+  border-left:5px solid var(--primary); border-radius:var(--r); padding:14px 20px; font-size:14px; margin-bottom:20px}
+.banner.partial{border-left-color:var(--high); background:var(--high-bg)}
+.banner b{font-size:16px}
+.rgrid{display:grid; grid-template-columns:320px 1fr; gap:20px; align-items:start}
+@media(max-width:860px){.rgrid{grid-template-columns:1fr}}
+.scorecard{text-align:center; padding:28px 22px}
+.gauge{width:150px; height:150px; border-radius:50%; margin:6px auto 14px; display:grid; place-items:center;
+  background:conic-gradient(var(--gc,#0F766E) calc(var(--v)*1%), #E8EEF3 0)}
+.gauge>div{width:108px;height:108px;border-radius:50%;background:#fff;display:grid;place-items:center}
+.gauge .n{font-size:38px; font-weight:800; line-height:1}
+.gauge .of{font-size:12px; color:var(--muted)}
+.band{font-size:19px; font-weight:700; margin-bottom:4px}
+.snote{font-size:12.5px; color:var(--muted)}
+.capln{margin-top:10px; font-size:12.5px; color:var(--mod); background:var(--mod-bg); border-radius:8px; padding:7px 10px}
+.counts{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:16px}
+.counts div{border-radius:8px; padding:8px 4px; font-size:12px; font-weight:700}
+.counts b{display:block; font-size:20px}
+.fcard{background:var(--card); border:1px solid var(--border); border-left:5px solid var(--fc); border-radius:var(--r); padding:16px 18px; margin-bottom:12px}
+.fcard .top{display:flex; justify-content:space-between; gap:12px; align-items:start}
+.fcard h4{font-size:15.5px}
+.fmeta{font-size:12.5px; color:var(--muted); margin:3px 0 8px}
+.sev{font-size:11px; font-weight:800; letter-spacing:.05em; border-radius:999px; padding:4px 11px; white-space:nowrap}
+.sev.crit{background:var(--crit-bg); color:var(--crit)} .sev.high{background:var(--high-bg); color:var(--high)}
+.sev.mod{background:var(--mod-bg); color:var(--mod)} .sev.low{background:var(--low-bg); color:var(--low)}
+details{font-size:13px; color:var(--primary); font-weight:600}
+details ol{margin:8px 0 4px 18px; color:var(--text); font-weight:400}
+details li{margin:3px 0}
+.legend{font-size:13px; color:var(--muted); margin-top:14px}
+footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; color:var(--muted); padding:18px; margin-top:20px}
+.hidden{display:none!important}
 </style>
 </head>
 <body>
+
 <header>
-  <h1>💊 RxRaksha</h1>
-  <span class="tag">prescription safety decision-support</span>
-  <span class="tag" id="kb"></span>
+  <div class="wrap hd">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" fill="#0F766E"/><path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+      RxRaksha
+    </div>
+    <span class="pill" id="kbPill">KB: …</span>
+    <span class="badge-syn">Synthetic demo</span>
+    <div class="sp"></div>
+    <button data-nav="home" class="on">Home</button>
+    <button data-nav="workspace">Open workspace</button>
+  </div>
+  <div class="disc">Decision support only — not prescribing, diagnosis or clinical approval. Verify against clinical judgment.</div>
 </header>
 
-<main>
-  <!-- INPUT -->
-  <section class="card">
-    <h3>Prescription input</h3>
-    <label>Medicine lines (one per line)</label>
-    <textarea id="lines" spellcheck="false">Warf 5mg OD
-Crocin 500mg 1-0-1
-Dolo-650 1-0-1</textarea>
-
-    <div class="row">
-      <div>
-        <label>Allergies (comma separated)</label>
-        <input type="text" id="allergies" placeholder="penicillin, sulfa">
+<!-- ================= HERO (login-remake, no auth) ================= -->
+<section id="scr-home" class="screen on">
+  <div class="hero">
+    <div class="hero-card">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" fill="#0F766E"/><path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+        RxRaksha
       </div>
+      <h1>Understand medication risks before the next prescription.</h1>
+      <p>Rule-based findings · clear explanations · honest coverage. Every flag shows its source.</p>
+      <div class="seg">
+        <button class="on" id="ctaStart">Start review</button>
+        <button id="ctaDemo">Load synthetic demo</button>
+      </div>
+      <button class="btn" id="heroGo">Continue to workspace →</button>
+      <div class="or">HOW IT WORKS</div>
+      <button class="btn ghost" id="howBtn">Rule engine vs. AI wording</button>
+      <p class="hero-note" id="howTxt" style="display:none;margin-top:14px;text-align:left">
+        All findings, severities and scores come from a <b>deterministic rule engine</b> — same input, same output.
+        Optional AI can only <i>re-word</i> explanations, and only after human verification. It can never create,
+        remove or regrade a finding.
+      </p>
+      <p class="hero-note">No accounts · no real patient data · synthetic cases only</p>
     </div>
-    <div class="row">
-      <div class="chk"><input type="checkbox" id="kidney"><label for="kidney" style="margin:0">Kidney impairment</label></div>
-      <div class="chk"><input type="checkbox" id="liver"><label for="liver" style="margin:0">Liver impairment</label></div>
-    </div>
-    <button id="go">Analyze prescription</button>
-    <div class="err" id="err"></div>
-  </section>
+  </div>
+  <div class="flow3">
+    <div><b>1 · Add context</b><span>Patient profile, allergies and current medicines.</span></div>
+    <div><b>2 · Confirm prescription</b><span>Typed lines; every unresolved name stays visible.</span></div>
+    <div><b>3 · Review findings</b><span>Prototype score, severity-ordered findings, full rationale.</span></div>
+  </div>
+</section>
 
-  <!-- REPORT -->
-  <section id="report" style="display:none">
-    <div class="card">
-      <div class="gauge-wrap">
-        <div class="gauge" id="gauge"><div>
-          <div><div class="num" id="score"></div><div class="of">/ 100</div></div>
-        </div></div>
-        <div>
-          <div class="band" id="band"></div>
-          <div class="action" id="action"></div>
-          <div class="cap" id="cap"></div>
-          <div class="badges" id="badges"></div>
+<!-- ================= STAGE 1: PATIENT ================= -->
+<section id="scr-patient" class="screen">
+  <div class="wrap">
+    <div class="steps"><span class="on">1 · Patient</span><span>2 · Prescription</span><span>3 · Confirm</span><span>4 · Results</span></div>
+    <h2 style="margin-top:18px">Patient profile</h2>
+    <p class="sub">Synthetic demo patient. “Unknown” is honest — it is never treated as “no allergy / no impairment”.</p>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Details</h3>
+        <div class="row3">
+          <div><label>Age</label><input id="pAge" type="number" value="58"></div>
+          <div><label>Weight (kg)</label><input id="pWt" type="number" value="72"></div>
+          <div><label>Gender</label>
+            <div class="seg3" id="pGender"><button class="on">F</button><button>M</button><button>Other</button></div></div>
         </div>
+        <label>Allergies (comma separated)</label>
+        <input id="pAllergy" placeholder="penicillin, sulfa">
+        <div class="seg3" id="pAllergyState" style="margin-top:8px">
+          <button class="on">Unknown / not supplied</button><button>None reported</button><button>Listed above</button>
+        </div>
+        <label>Kidney status</label>
+        <div class="seg3" id="pKidney"><button class="on">Unknown</button><button>Normal</button><button>Impaired</button></div>
+        <label>Liver status</label>
+        <div class="seg3" id="pLiver"><button class="on">Unknown</button><button>Normal</button><button>Impaired</button></div>
       </div>
-      <div class="summary-box" id="summary"></div>
-      <div class="ai" id="ai" style="display:none"></div>
+      <div class="panel">
+        <h3>Current medicines</h3>
+        <div id="medList"></div>
+        <button class="addrow" id="addMed">+ Add medicine</button>
+      </div>
     </div>
+    <div class="foot"><span></span><button class="btn" data-go="scr-rx">Continue →</button></div>
+  </div>
+</section>
 
-    <div class="card" style="margin-top:16px">
-      <h3>Findings</h3>
-      <div id="findings"></div>
+<!-- ================= STAGE 2: PRESCRIPTION ================= -->
+<section id="scr-rx" class="screen">
+  <div class="wrap">
+    <div class="steps"><span class="done">1 · Patient</span><span class="on">2 · Prescription</span><span>3 · Confirm</span><span>4 · Results</span></div>
+    <h2 style="margin-top:18px">Prescription entry</h2>
+    <p class="sub">One medicine per line — name, strength, frequency. Image upload (OCR) is a P1 item and is labelled as unavailable in this prototype.</p>
+    <div class="panel" style="max-width:720px">
+      <h3>Proposed medicines</h3>
+      <textarea id="rxLines" rows="6" placeholder="Warf 5mg OD&#10;Crocin 500mg 1-0-1&#10;Dolo-650 1-0-1"></textarea>
+      <div class="warn" style="margin-top:14px">📷 <b>Upload image</b> — OCR extraction is not enabled in this prototype build. Typed entry works fully offline.</div>
     </div>
+    <div class="foot" style="max-width:720px">
+      <button class="btn ghost" data-go="scr-patient">← Back</button>
+      <button class="btn" id="toConfirm">Review &amp; normalize →</button>
+    </div>
+  </div>
+</section>
 
-    <div class="card" style="margin-top:16px">
-      <h3>Normalized medicines</h3>
-      <table id="norm"><thead><tr>
-        <th>Line</th><th>Ingredient</th><th>Strength</th><th>Daily</th><th>Matched via</th>
-      </tr></thead><tbody></tbody></table>
+<!-- ================= STAGE 3: CONFIRM ================= -->
+<section id="scr-confirm" class="screen">
+  <div class="wrap">
+    <div class="steps"><span class="done">1 · Patient</span><span class="done">2 · Prescription</span><span class="on">3 · Confirm</span><span>4 · Results</span></div>
+    <h2 style="margin-top:18px">Review &amp; normalize</h2>
+    <p class="sub">Check how each line was understood. Unresolved lines stay visible and block a clean result — nothing is silently dropped.</p>
+    <div id="confWarn"></div>
+    <div class="panel"><table id="confTable">
+      <thead><tr><th>Entered line</th><th>Ingredient</th><th>Strength</th><th>Daily</th><th>Matched via</th><th>Status</th></tr></thead>
+      <tbody></tbody></table></div>
+    <div class="foot">
+      <button class="btn ghost" data-go="scr-rx">← Edit lines</button>
+      <button class="btn" id="runAnalysis">Run safety analysis →</button>
     </div>
+  </div>
+</section>
 
-    <div class="card" style="margin-top:16px">
-      <h3>Score breakdown</h3>
-      <table id="ledger" class="ledger"><thead><tr>
-        <th>Source</th><th>Detail</th><th>Δ score</th>
-      </tr></thead><tbody></tbody></table>
-      <div class="disclaimer" id="disclaimer"></div>
+<!-- ================= STAGE 4: RESULTS ================= -->
+<section id="scr-results" class="screen">
+  <div class="wrap">
+    <div class="steps"><span class="done">1 · Patient</span><span class="done">2 · Prescription</span><span class="done">3 · Confirm</span><span class="on">4 · Results</span></div>
+    <div class="banner" id="covBanner" style="margin-top:18px"></div>
+    <div class="rgrid">
+      <div class="panel scorecard">
+        <h3 style="margin-bottom:2px">Prototype risk score</h3>
+        <div class="gauge" id="gauge"><div><div><div class="n" id="gNum">–</div><div class="of">/ 100</div></div></div></div>
+        <div class="band" id="gBand"></div>
+        <div class="snote" id="gAction"></div>
+        <div class="capln hidden" id="gCap"></div>
+        <div class="snote" style="margin-top:10px">Not a validated clinical probability.</div>
+        <div class="counts" id="counts"></div>
+        <details style="margin-top:14px;text-align:left"><summary>Score breakdown</summary><ol id="ledger"></ol></details>
+      </div>
+      <div>
+        <div class="panel" style="padding:16px 18px; margin-bottom:14px" id="summaryPanel"></div>
+        <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:6px 0 10px">Findings — highest severity first</h3>
+        <div id="findings"></div>
+        <p class="legend" id="noFindings" style="display:none">No findings detected by the available rules. This does not mean the prescription is safe — see coverage above.</p>
+      </div>
     </div>
-  </section>
-</main>
+    <div class="foot">
+      <button class="btn ghost" data-go="scr-patient">← Edit inputs</button>
+      <button class="btn ghost" id="newReview">New review</button>
+    </div>
+  </div>
+</section>
+
+<footer>RxRaksha prototype · VJH 2026 · Deterministic rules first — AI wording only after human verification · Synthetic demo data</footer>
 
 <script>
-const BAND_COLOR = {Safe:"var(--safe)",Caution:"var(--caution)",Warning:"var(--warning)",
-                    "High Risk":"var(--high)",Critical:"var(--critical)"};
-const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const SEVC={contraindicated:"crit",major:"high",moderate:"mod",minor:"low",unknown:"low"};
+const GC={Safe:"#0F766E",Caution:"#B54708",Warning:"#B54708","High Risk":"#B42318",Critical:"#B42318"};
+let demoMode=false, lastReport=null;
 
-fetch("/health").then(r=>r.json()).then(h=>{
-  $("kb").textContent = `KB: ${h.drugs} drugs · ${h.interactions} interactions`;
-}).catch(()=>{});
+/* nav */
+function show(id){$$(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
+  $$("[data-nav]").forEach(b=>b.classList.toggle("on",(id==="scr-home")==(b.dataset.nav==="home")));
+  window.scrollTo(0,0)}
+$$("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
+$$("[data-nav]").forEach(b=>b.onclick=()=>show(b.dataset.nav==="home"?"scr-home":"scr-patient"));
+$("#howBtn").onclick=()=>{const t=$("#howTxt");t.style.display=t.style.display==="none"?"block":"none"};
+$("#ctaDemo").onclick=()=>{demoMode=true};
+$("#ctaStart").onclick=()=>{demoMode=false};
+$("#heroGo").onclick=()=>{if(demoMode)loadDemo();show("scr-patient")};
+$("#newReview").onclick=()=>location.reload();
 
-$("go").onclick = async () => {
-  $("err").textContent = ""; $("go").disabled = true; $("go").textContent = "Analyzing…";
-  const payload = {
-    lines: $("lines").value.split("\n").map(s=>s.trim()).filter(Boolean),
-    patient: {
-      allergies: $("allergies").value.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean),
-      kidney_impairment: $("kidney").checked,
-      liver_impairment: $("liver").checked,
-    }
-  };
-  try {
-    const r = await fetch("/analyze",{method:"POST",headers:{"Content-Type":"application/json"},
-                                      body:JSON.stringify(payload)});
-    if(!r.ok) throw new Error((await r.json()).detail || r.statusText);
-    render(await r.json());
-  } catch(e){ $("err").textContent = "Error: "+e.message; }
-  $("go").disabled = false; $("go").textContent = "Analyze prescription";
-};
+/* seg3 toggle groups */
+$$(".seg3").forEach(g=>g.addEventListener("click",e=>{
+  if(e.target.tagName!=="BUTTON")return;
+  $$("#"+g.id+" button").forEach(b=>b.classList.remove("on")); e.target.classList.add("on");}));
 
-function render(d){
-  $("report").style.display = "block";
-  const color = BAND_COLOR[d.band] || "var(--unknown)";
-  const g = $("gauge"); g.style.setProperty("--v", d.score); g.style.setProperty("--c", color);
-  $("score").textContent = d.score;
-  $("band").textContent = d.band; $("band").style.color = color;
-  $("action").textContent = d.action;
-  $("cap").textContent = d.cap_applied ? "⛔ "+d.cap_applied : "";
+/* med rows */
+function medRow(n="",d="",f=""){const r=document.createElement("div");r.className="medrow";
+  r.innerHTML=`<input placeholder="Medicine" value="${n}"><input placeholder="Dose" value="${d}"><input placeholder="Frequency" value="${f}"><button title="Remove">×</button>`;
+  r.querySelector("button").onclick=()=>r.remove();$("#medList").appendChild(r)}
+$("#addMed").onclick=()=>medRow(); medRow();
 
-  // coverage badges
-  $("badges").innerHTML = d.coverage.checks.map(c=>{
-    if(c.ran) return `<span class="badge ok">✓ ${c.check}</span>`;
-    return `<span class="badge skip" title="${esc(c.reason||"")}">— ${c.check} (skipped)</span>`;
-  }).join("") +
-  (d.coverage.normalization.review? `<span class="badge warn">⚠ ${d.coverage.normalization.review} line(s) to review</span>`:"") +
-  (d.coverage.normalization.unmatched? `<span class="badge warn">⚠ ${d.coverage.normalization.unmatched} unmatched</span>`:"");
+function loadDemo(){
+  $("#pAge").value=58;$("#pWt").value=72;
+  $("#pAllergy").value="penicillin";
+  setSeg("pAllergyState",2);setSeg("pKidney",0);setSeg("pLiver",0);
+  $("#medList").innerHTML="";medRow("Metformin","500mg","BD");
+  $("#rxLines").value="Warf 5mg OD\nCrocin 500mg 1-0-1\nDolo-650 1-0-1";}
+function setSeg(id,i){$$("#"+id+" button").forEach((b,j)=>b.classList.toggle("on",i===j))}
+function segVal(id){return $$("#"+id+" button").findIndex(b=>b.classList.contains("on"))}
 
-  $("summary").textContent = d.summary;
-  const ai = $("ai");
-  if(d.ai_summary){ ai.style.display="block";
-    ai.innerHTML = `<div class="who">AI summary · verified by ${esc(d.ai_summary.verified_by)} · ${esc(d.ai_summary.method)}</div>${esc(d.ai_summary.text)}`;
-  } else ai.style.display = "none";
+/* patient -> payload */
+function patient(){
+  const aState=segVal("pAllergyState");
+  const allergies=aState===2?$("#pAllergy").value.split(",").map(s=>s.trim()).filter(Boolean)
+                :aState===1?[]:[];
+  return {allergies, kidney_impairment:segVal("pKidney")===2, liver_impairment:segVal("pLiver")===2};}
 
-  // findings
-  $("findings").innerHTML = d.findings.length ? d.findings.map(f=>`
-    <div class="finding ${f.severity}">
-      <div class="head"><span class="title">${esc(f.title)}</span>
-        <span class="sev ${f.severity}">${esc(f.severity)}</span></div>
-      <div class="mech">${esc(f.mechanism)}</div>
+/* health */
+fetch("/health").then(r=>r.json()).then(h=>$("#kbPill").textContent=`KB: ${h.drugs} drugs · ${h.interactions.toLocaleString()} interactions`).catch(()=>{});
+
+/* stage 2 -> 3 : call /analyze once, show normalization, then results */
+let pending=null;
+$("#toConfirm").onclick=async()=>{
+  const lines=$("#rxLines").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){alert("Enter at least one medicine line.");return}
+  $("#toConfirm").textContent="Normalizing…";
+  try{pending=await api(lines);renderConfirm(pending);show("scr-confirm")}
+  catch(e){alert("Analysis failed: "+e.message)}
+  finally{$("#toConfirm").textContent="Review & normalize →"}};
+
+async function api(lines){
+  const r=await fetch("/analyze",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({lines,patient:patient()})});
+  if(!r.ok)throw new Error((await r.json()).detail||r.statusText);
+  return r.json();}
+
+function renderConfirm(rep){
+  const tb=$("#confTable tbody");tb.innerHTML="";let unres=0;
+  rep.normalized.lines.forEach(ln=>{
+    if(!ln.ingredients.length){unres++;
+      tb.insertAdjacentHTML("beforeend",`<tr class="unres"><td>${esc(ln.raw)}</td><td colspan="4">Could not check — no match in knowledge base</td><td><span class="tag unres">UNRESOLVED</span></td></tr>`);return}
+    ln.ingredients.forEach(i=>{
+      const t=i.needs_review?`<span class="tag unres">REVIEW</span>`:`<span class="tag ok">OK</span>`;
+      if(i.needs_review)unres++;
+      tb.insertAdjacentHTML("beforeend",`<tr class="${i.needs_review?"unres":""}"><td>${esc(ln.raw)}</td><td>${esc(i.generic)}</td><td>${i.strength_mg??"—"} mg</td><td>${i.daily_mg??"—"} mg/day</td><td>${esc(i.match_type)}</td><td>${t}</td></tr>`)})});
+  $("#confWarn").innerHTML=unres?`<div class="warn">⚠ <b>${unres} item(s) unresolved or needing review.</b> Results will be marked incomplete — they can never appear as a clean pass.</div>`:"";}
+
+$("#runAnalysis").onclick=()=>{renderResults(pending);show("scr-results")};
+
+/* results */
+function renderResults(r){lastReport=r;
+  const cov=r.coverage||{}, partial=(cov.status!=="full");
+  const b=$("#covBanner");
+  b.className="banner"+(partial?" partial":"");
+  b.innerHTML=`<b>Coverage: ${partial?"Partial":"Complete"}</b>
+    <span>✔ checks run: ${(cov.checks||[]).filter(c=>c.ran).map(c=>c.check).join(", ")||"—"}</span>
+    <span>— skipped: ${(cov.checks||[]).filter(c=>!c.ran).map(c=>c.check).join(", ")||"none"}</span>
+    ${partial?"<span><b>Incomplete data — this is not a low-risk result.</b></span>":""}`;
+  const g=$("#gauge");g.style.setProperty("--v",r.score);g.style.setProperty("--gc",GC[r.band]||"#0F766E");
+  $("#gNum").textContent=r.score;$("#gNum").style.color=GC[r.band]||"#0F766E";
+  $("#gBand").textContent=r.band;$("#gBand").style.color=GC[r.band]||"#0F766E";
+  $("#gAction").textContent=r.action;
+  if(r.cap_applied){$("#gCap").textContent="⛔ "+r.cap_applied;$("#gCap").classList.remove("hidden")}
+  const cnt={contraindicated:0,major:0,moderate:0,minor:0};
+  r.findings.forEach(f=>cnt[f.severity]=(cnt[f.severity]||0)+1);
+  $("#counts").innerHTML=[["contraindicated","CRITICAL","crit"],["major","HIGH","high"],["moderate","MOD","mod"],["minor","LOW","low"]]
+    .map(([k,l,c])=>`<div style="background:var(--${c}-bg);color:var(--${c})"><b>${cnt[k]||0}</b>${l}</div>`).join("");
+  $("#ledger").innerHTML=r.score_ledger.map(l=>`<li>${esc(l.source)}: ${esc(l.detail)} (${l.delta>0?"+":""}${l.delta})</li>`).join("");
+  $("#summaryPanel").innerHTML=`<b>Summary</b><p style="font-size:14px;margin-top:6px">${esc(r.summary)}</p>`;
+  const order={contraindicated:0,major:1,moderate:2,minor:3,unknown:4};
+  const fs=[...r.findings].sort((a,b)=>(order[a.severity]??5)-(order[b.severity]??5));
+  $("#noFindings").style.display=fs.length?"none":"block";
+  $("#findings").innerHTML=fs.map((f,i)=>`
+    <div class="fcard" style="--fc:var(--${SEVC[f.severity]||"low"})">
+      <div class="top"><div><h4>${esc(f.title)}</h4>
+        <div class="fmeta">${f.rule_id} · ${f.category} · source: ${esc(f.evidence_source)} · KB ${esc(f.kb_version)}</div></div>
+        <span class="sev ${SEVC[f.severity]||"low"}">${f.severity.toUpperCase()}</span></div>
+      <p style="font-size:14px">${esc(f.mechanism)}</p>
       <details><summary>Reasoning chain (${f.reasoning_chain.length} steps)</summary>
-        <ol class="chain">${f.reasoning_chain.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
-        <div class="meta">Source: ${esc(f.evidence_source)} · KB ${esc(f.kb_version)} · Rule ${esc(f.rule_id)}</div>
-      </details>
-    </div>`).join("") : `<div style="color:var(--safe);margin-top:8px">✓ No findings — all completed checks passed.</div>`;
+        <ol>${f.reasoning_chain.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></details>
+    </div>`).join("");}
 
-  // normalized table
-  $("norm").querySelector("tbody").innerHTML = d.normalized.lines.map(ln=>{
-    if(!ln.ingredients.length)
-      return `<tr><td>${esc(ln.raw)}</td><td class="unmatched" colspan="4">no match — manual entry needed</td></tr>`;
-    return ln.ingredients.map(i=>`<tr class="${ln.status!=="ok"?"review":""}">
-      <td>${esc(ln.raw)}</td><td>${esc(i.generic)}</td>
-      <td>${i.strength_mg??"?"} mg</td><td>${i.daily_mg!=null? i.daily_mg+" mg/day":"unknown"}</td>
-      <td>${esc(i.match_type)}${i.needs_review?" ⚠":""}</td></tr>`).join("");
-  }).join("");
-
-  // ledger
-  $("ledger").querySelector("tbody").innerHTML = d.score_ledger.map(l=>`<tr>
-    <td>${esc(l.source)}</td><td>${esc(l.detail)}</td>
-    <td class="${l.delta<0?"neg":"zero"}">${l.delta}</td></tr>`).join("");
-  $("disclaimer").textContent = d.disclaimer;
-}
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 </script>
 </body>
 </html>
