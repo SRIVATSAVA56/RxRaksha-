@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RxRaksha — Prescription Safety Decision Support</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root{
   --bg:#F5F8FA; --card:#FFFFFF; --primary:#0F766E; --primary-h:#115E59;
@@ -27,6 +28,15 @@ header{background:var(--card); border-bottom:1px solid var(--border); position:s
 .pill{font-size:12px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:3px 10px}
 .badge-syn{font-size:12px; font-weight:600; color:var(--mod); background:var(--mod-bg); border-radius:999px; padding:3px 10px}
 .hd .sp{flex:1}
+.nav-pill{background:none; border:1px solid var(--border); border-radius:999px; padding:6px 14px; font-size:13px; font-weight:600; color:var(--muted); transition:all .15s}
+.nav-pill:hover{border-color:var(--primary); color:var(--primary)}
+.nav-pill.on{background:var(--primary); color:#fff; border-color:var(--primary)}
+.user-avatar{width:32px; height:32px; border-radius:50%; object-fit:cover; display:inline-block}
+.user-avatar-initials{width:32px; height:32px; border-radius:50%; background:var(--primary); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; text-transform:uppercase}
+.notice-box{margin:14px 0 0; padding:10px 14px; border-radius:var(--ctl); font-size:13px; text-align:left; display:none}
+.notice-box.err{background:var(--crit-bg); color:var(--crit); border:1px solid #FDA29B}
+.notice-box.warn{background:var(--high-bg); color:#7A3A05; border:1px solid #FEDF89}
+.notice-box.info{background:#EFF8FF; color:#175CD3; border:1px solid #B2DDFF}
 .hd button{background:none; border:none; color:var(--muted); font-size:14px; padding:6px 4px}
 .hd button:hover{color:var(--primary)}
 .hd button.on{color:var(--primary); font-weight:600; border-bottom:2px solid var(--primary)}
@@ -145,29 +155,47 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
     <span class="pill" id="kbPill">KB: 1,942 drugs · 160,236 interactions</span>
     <span class="badge-syn">Synthetic demo</span>
     <div class="sp"></div>
-    <button data-nav="home" class="on">Home</button>
-    <button data-nav="workspace">Open workspace</button>
+    <div id="headerUserArea" style="display:none; align-items:center; gap:12px">
+      <button type="button" class="nav-pill on" id="navAnalysis">Risk Analysis</button>
+      <button type="button" class="nav-pill" id="navProfile">Profile Vault</button>
+      <div style="display:flex; align-items:center; gap:8px; margin-left:6px">
+        <span id="userAvatarContainer"></span>
+        <span id="userName" style="font-size:13px; font-weight:600; color:var(--text)"></span>
+      </div>
+      <a href="#logout" id="logoutLink" style="font-size:13px; color:var(--muted); text-decoration:none; margin-left:4px">Log out</a>
+    </div>
   </div>
   <div class="disc">Decision support only — not prescribing, diagnosis or clinical approval. Verify against clinical judgment.</div>
 </header>
 
-<!-- ================= HERO (login-remake, no auth) ================= -->
-<section id="scr-home" class="screen on">
+<!-- ================= SCREEN: LOGIN ================= -->
+<section id="scr-login" class="screen on">
   <div class="hero">
     <div class="hero-card">
       <div class="logo">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" fill="#0F766E"/><path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
         RxRaksha
       </div>
-      <h1>Understand medication risks before the next prescription.</h1>
-      <p>Rule-based findings · clear explanations · honest coverage. Every flag shows its source.</p>
-      <button class="btn" id="heroGo" style="margin-top:24px">Start review →</button>
+      <h1 style="font-size:26px; margin:16px 0 6px">RxRaksha</h1>
+      <p style="font-size:14px; color:var(--muted); margin-bottom:24px">Prescription risk analysis, explained — deterministic rules, honest coverage.</p>
+
+      <!-- Google Sign-In Container -->
+      <div id="googleBtnContainer" style="display:flex; justify-content:center; min-height:44px; margin-bottom:8px"></div>
+      <div id="googleUnconfiguredNote" style="display:none; font-size:12px; color:var(--muted); margin-bottom:12px">Google sign-in not configured — demo mode available</div>
+
+      <div class="or">OR</div>
+
+      <!-- Demo Account Button -->
+      <button type="button" class="btn ghost" id="demoLoginBtn" style="border-color:var(--primary); color:var(--primary); font-weight:600">Continue with demo account</button>
+
+      <!-- Inline Notice / Error for login -->
+      <div id="loginNotice" class="notice-box"></div>
+
+      <!-- Amber disclaimer line at bottom of card -->
+      <div style="margin-top:24px; padding:9px 12px; border-radius:8px; background:#FFF8E6; border:1px solid #EFE3B8; color:#7A3A05; font-size:12px; font-weight:500">
+        Prototype · synthetic data · decision support only
+      </div>
     </div>
-  </div>
-  <div class="flow3">
-    <div><b>1 · Enter prescription</b><span>Patient profile, allergies and medication lines or image scan.</span></div>
-    <div><b>2 · Confirm normalization</b><span>Verify ingredients, daily doses and unresolved items.</span></div>
-    <div><b>3 · Review findings</b><span>Risk score, auditable ledger, and clinical rationale.</span></div>
   </div>
 </section>
 
@@ -306,21 +334,179 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
   </div>
 </section>
 
+<!-- ================= SCREEN: PROFILE VAULT (STUB) ================= -->
+<section id="scr-profile" class="screen">
+  <div class="wrap" style="max-width:720px; margin-top:24px">
+    <div class="panel" style="text-align:center; padding:48px 24px">
+      <div style="font-size:36px; margin-bottom:12px">🔒</div>
+      <h2>Profile Vault</h2>
+      <p class="sub" style="margin-bottom:0">Profile Vault loading…</p>
+    </div>
+  </div>
+</section>
+
 <footer>RxRaksha prototype · VJH 2026 · Deterministic rules first — AI wording only after human verification · Synthetic demo data</footer>
 
 <script>
+/* =========================================================================
+   1. CORE HELPERS & ESCAPING (declared before any code can use them)
+   ========================================================================= */
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function getUserInitials(name){
+  if(!name) return "U";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if(parts.length >= 2){
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return parts[0].substring(0, 2).toUpperCase();
+}
+
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const SEVC={contraindicated:"crit",major:"high",moderate:"mod",minor:"low",unknown:"low"};
 const GC={Safe:"#0F766E",Caution:"#B54708",Warning:"#B54708","High Risk":"#B42318",Critical:"#B42318"};
 
-/* FIX 1: ALL state declarations moved to top — fixes "Cannot access 'pending'
-   before initialization" TDZ crash that aborted the whole script block */
-let lastReport=null;
-let pending=null;
-let selectedImageFile=null;
-let imageExtracted=false;
+/* =========================================================================
+   2. AUTH & APPLICATION STATE (declared ONCE at the top)
+   ========================================================================= */
+let token = null;
+let currentUser = null;
+let lastReport = null;
+let pending = null;
+let selectedImageFile = null;
+let imageExtracted = false;
+let googleClientId = null;
 
-/* nav */
+/* =========================================================================
+   3. AUTH & API FETCH LOGIC
+   ========================================================================= */
+async function apiFetch(url, options = {}) {
+  const opts = { ...options };
+  opts.headers = { ...(opts.headers || {}) };
+
+  if (token) {
+    opts.headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const isFormData = opts.body instanceof FormData;
+  const method = (opts.method || "GET").toUpperCase();
+  if (!isFormData && (method === "POST" || method === "PUT") && !opts.headers["Content-Type"]) {
+    opts.headers["Content-Type"] = "application/json";
+  }
+
+  const resp = await fetch(url, opts);
+  if (resp.status === 401) {
+    if (url === "/auth/google" || url === "/auth/demo") {
+      return resp;
+    }
+    logout();
+    showLoginNotice("Session expired — please sign in again.", "warn");
+    throw new Error("Session expired (401)");
+  }
+  return resp;
+}
+
+function showLoginNotice(msg, type = "err") {
+  const el = document.getElementById("loginNotice");
+  if (!el) return;
+  el.className = `notice-box ${type}`;
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function hideLoginNotice() {
+  const el = document.getElementById("loginNotice");
+  if (el) el.style.display = "none";
+}
+
+function loginSuccess(data) {
+  token = data.token;
+  currentUser = data.user;
+  if (token) {
+    localStorage.setItem("rx_token", token);
+  }
+  hideLoginNotice();
+  showApp();
+}
+
+function logout() {
+  localStorage.removeItem("rx_token");
+  token = null;
+  currentUser = null;
+  if (window.google?.accounts?.id) {
+    try { window.google.accounts.id.disableAutoSelect(); } catch (_) {}
+  }
+  showLogin();
+}
+
+async function handleGoogleLogin(response) {
+  hideLoginNotice();
+  try {
+    const res = await apiFetch("/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ credential: response.credential })
+    });
+    if (res.status === 401) {
+      showLoginNotice("Google sign-in verification failed", "err");
+      return;
+    }
+    if (res.status === 503) {
+      showLoginNotice("Google login not configured", "warn");
+      return;
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showLoginNotice(err.detail || "Google login failed", "err");
+      return;
+    }
+    const data = await res.json();
+    loginSuccess(data);
+  } catch (err) {
+    showLoginNotice("Sign-in failed: " + err.message, "err");
+  }
+}
+
+function renderHeaderUser() {
+  const container = document.getElementById("userAvatarContainer");
+  const nameEl = document.getElementById("userName");
+  if (!currentUser) return;
+  if (nameEl) {
+    nameEl.textContent = currentUser.name || "Clinician";
+  }
+  if (container) {
+    if (currentUser.picture) {
+      container.innerHTML = `<img src="${esc(currentUser.picture)}" alt="Avatar" class="user-avatar" referrerpolicy="no-referrer">`;
+    } else {
+      const initials = getUserInitials(currentUser.name);
+      container.innerHTML = `<span class="user-avatar-initials">${esc(initials)}</span>`;
+    }
+  }
+}
+
+function setActiveNav(id) {
+  const a = document.getElementById("navAnalysis");
+  const p = document.getElementById("navProfile");
+  if (a) a.classList.toggle("on", id === "navAnalysis");
+  if (p) p.classList.toggle("on", id === "navProfile");
+}
+
+function showLogin() {
+  const userArea = document.getElementById("headerUserArea");
+  if (userArea) userArea.style.display = "none";
+  $$(".screen").forEach(s => s.classList.toggle("on", s.id === "scr-login"));
+  window.scrollTo(0, 0);
+}
+
+function showApp() {
+  const userArea = document.getElementById("headerUserArea");
+  if (userArea) userArea.style.display = "flex";
+  renderHeaderUser();
+  setActiveNav("navAnalysis");
+  show("scr-patient");
+}
+
+/* =========================================================================
+   4. NAVIGATION & SCREEN SWITCHING
+   ========================================================================= */
 const STAGES = ["scr-patient", "scr-confirm", "scr-results"];
 
 function updateSteps(currentStageId) {
@@ -339,22 +525,135 @@ function updateSteps(currentStageId) {
   });
 }
 
-function show(id){
-  const target=document.getElementById(id);
-  if(!target){
-    id="scr-patient";
+function show(id) {
+  if (!token) {
+    showLogin();
+    return;
   }
-  $$(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
-  $$("[data-nav]").forEach(b=>b.classList.toggle("on",(id==="scr-home")==(b.dataset.nav==="home")));
+  const target = document.getElementById(id);
+  if (!target) {
+    id = "scr-patient";
+  }
+  $$(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+  if (id === "scr-profile") {
+    setActiveNav("navProfile");
+  } else {
+    setActiveNav("navAnalysis");
+  }
   updateSteps(id);
-  window.scrollTo(0,0);
+  window.scrollTo(0, 0);
 }
-$$("[data-go]").forEach(b=>b.onclick=()=>show(b.dataset.go));
-$$("[data-nav]").forEach(b=>b.onclick=()=>{
-  show(b.dataset.nav==="home"?"scr-home":"scr-patient");
-});
-$("#heroGo").onclick=()=>show("scr-patient");
-$("#newReview").onclick=()=>location.reload();
+
+$$("[data-go]").forEach(b => b.onclick = () => show(b.dataset.go));
+
+const navAnalysisBtn = document.getElementById("navAnalysis");
+if (navAnalysisBtn) navAnalysisBtn.onclick = () => show("scr-patient");
+
+const navProfileBtn = document.getElementById("navProfile");
+if (navProfileBtn) navProfileBtn.onclick = () => show("scr-profile");
+
+const logoutBtn = document.getElementById("logoutLink");
+if (logoutBtn) {
+  logoutBtn.onclick = (e) => {
+    e.preventDefault();
+    logout();
+  };
+}
+
+const demoLoginBtn = document.getElementById("demoLoginBtn");
+if (demoLoginBtn) {
+  demoLoginBtn.onclick = async () => {
+    hideLoginNotice();
+    demoLoginBtn.disabled = true;
+    demoLoginBtn.textContent = "Signing in…";
+    try {
+      const res = await apiFetch("/auth/demo", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showLoginNotice(err.detail || "Demo login failed", "err");
+        return;
+      }
+      const data = await res.json();
+      loginSuccess(data);
+    } catch (err) {
+      showLoginNotice("Demo login error: " + err.message, "err");
+    } finally {
+      demoLoginBtn.disabled = false;
+      demoLoginBtn.textContent = "Continue with demo account";
+    }
+  };
+}
+
+const newReviewBtn = document.getElementById("newReview");
+if (newReviewBtn) newReviewBtn.onclick = () => location.reload();
+
+function initGoogleGsi(clientId) {
+  const gContainer = document.getElementById("googleBtnContainer");
+  const note = document.getElementById("googleUnconfiguredNote");
+  if (!clientId) {
+    if (gContainer) gContainer.style.display = "none";
+    if (note) note.style.display = "block";
+    return;
+  }
+  if (note) note.style.display = "none";
+  if (gContainer) gContainer.style.display = "flex";
+
+  function renderBtn() {
+    if (window.google?.accounts?.id) {
+      try {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: handleGoogleLogin
+        });
+        window.google.accounts.id.renderButton(
+          document.getElementById("googleBtnContainer"),
+          { theme: "outline", size: "large", width: 320 }
+        );
+      } catch (err) {
+        console.warn("Google GSI render error:", err);
+      }
+    } else {
+      setTimeout(renderBtn, 100);
+    }
+  }
+  renderBtn();
+}
+
+async function initAuth() {
+  try {
+    const r = await fetch("/config");
+    if (r.ok) {
+      const cfg = await r.json();
+      googleClientId = cfg.google_client_id || null;
+      initGoogleGsi(googleClientId);
+    }
+  } catch (err) {
+    console.warn("Failed fetching /config:", err);
+  }
+
+  const storedToken = localStorage.getItem("rx_token");
+  if (!storedToken) {
+    showLogin();
+    return;
+  }
+
+  token = storedToken;
+  try {
+    const res = await apiFetch("/me");
+    if (!res.ok) {
+      logout();
+      return;
+    }
+    const user = await res.json();
+    currentUser = user;
+    showApp();
+  } catch (err) {
+    logout();
+  }
+}
 
 /* seg3 toggle groups */
 $$(".seg3").forEach(g=>g.addEventListener("click",e=>{
@@ -415,8 +714,8 @@ function clearInputs(){
   $("#medList").innerHTML="";
   $("#rxLines").value="";
   clearErrors();
-  if(typeof clearImageSelection === "function") clearImageSelection();
-  pending=null;
+  if (typeof clearImageSelection === "function") clearImageSelection();
+  pending = null; // or false, or []
 }
 clearInputs();
 
@@ -554,7 +853,7 @@ document.getElementById("toConfirm").addEventListener("click", async () => {
 });
 
 async function api(lines){
-  const r=await fetch("/analyze",{method:"POST",headers:{"Content-Type":"application/json"},
+  const r=await apiFetch("/analyze",{method:"POST",
     body:JSON.stringify({lines,patient:getCurrentPatient()})});
   if(!r.ok){
     const err = await r.json().catch(()=>({}));
@@ -786,7 +1085,7 @@ if(extractBtn){
     fd.append("patient", JSON.stringify(getCurrentPatient()));
 
     try{
-      const resp = await fetch("/analyze/image", { method: "POST", body: fd });
+      const resp = await apiFetch("/analyze/image", { method: "POST", body: fd });
       if(!resp.ok){
         const errJson = await resp.json().catch(() => ({}));
         const detail = errJson.detail || resp.statusText || "";
@@ -860,7 +1159,8 @@ function renderResults(r){lastReport=r;
         <ol>${f.reasoning_chain.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></details>
     </div>`).join("");}
 
-function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+// Initialize auth
+initAuth();
 </script>
 </body>
 </html>
