@@ -86,6 +86,8 @@ label{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
 .addrow:hover{border-color:var(--primary)}
 .foot{display:flex; justify-content:space-between; margin-top:22px}
 .foot .btn{width:auto; padding:12px 30px}
+.pcontext-bar{background:#EBF5F4; border:1px solid #B2DFDB; border-radius:var(--ctl); padding:10px 14px; font-size:13px; color:var(--text); margin-bottom:14px}
+.pcontext-bar span{font-weight:600; color:var(--primary)}
 
 /* ---------- confirm ---------- */
 table{width:100%; border-collapse:collapse; font-size:14px}
@@ -178,25 +180,25 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
       <div class="panel">
         <h3>Details</h3>
         <div class="row3">
-          <div><label>Age</label><input id="pAge" type="number" placeholder="Years"></div>
-          <div><label>Weight (kg)</label><input id="pWt" type="number" placeholder="kg"></div>
+          <div><label>Age</label><input id="pAge" type="text" placeholder="e.g. 58 or 58y"></div>
+          <div><label>Weight (kg)</label><input id="pWt" type="text" placeholder="e.g. 72 or 72kg"></div>
           <div><label>Gender</label>
-            <div class="seg3" id="pGender"><button>F</button><button>M</button><button>Other</button></div></div>
+            <div class="seg3" id="pGender"><button type="button" class="on">Unknown</button><button type="button">F</button><button type="button">M</button><button type="button">Other</button></div></div>
         </div>
         <label>Allergies (comma separated)</label>
         <input id="pAllergy" placeholder="e.g. penicillin, sulfa">
         <div class="seg3" id="pAllergyState" style="margin-top:8px">
-          <button class="on">Unknown / not supplied</button><button>None reported</button><button>Listed above</button>
+          <button type="button" class="on">Unknown / not supplied</button><button type="button">None reported</button><button type="button">Listed above</button>
         </div>
         <label>Kidney status</label>
-        <div class="seg3" id="pKidney"><button class="on">Unknown</button><button>Normal</button><button>Impaired</button></div>
+        <div class="seg3" id="pKidney"><button type="button" class="on">Unknown</button><button type="button">Normal</button><button type="button">Impaired</button></div>
         <label>Liver status</label>
-        <div class="seg3" id="pLiver"><button class="on">Unknown</button><button>Normal</button><button>Impaired</button></div>
+        <div class="seg3" id="pLiver"><button type="button" class="on">Unknown</button><button type="button">Normal</button><button type="button">Impaired</button></div>
       </div>
       <div class="panel">
         <h3>Current medicines</h3>
         <div id="medList"></div>
-        <button class="addrow" id="addMed">+ Add medicine</button>
+        <button type="button" class="addrow" id="addMed">+ Add medicine</button>
       </div>
     </div>
     <div class="foot"><span></span><button class="btn" data-go="scr-rx">Continue →</button></div>
@@ -227,6 +229,7 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
     <div class="steps"><span class="done">1 · Patient</span><span class="done">2 · Prescription</span><span class="on">3 · Confirm</span><span>4 · Results</span></div>
     <h2 style="margin-top:18px">Review &amp; normalize</h2>
     <p class="sub">Check how each line was understood. Unresolved lines stay visible and block a clean result — nothing is silently dropped.</p>
+    <div id="confPatientContext"></div>
     <div id="confWarn"></div>
     <div class="panel"><table id="confTable">
       <thead><tr><th>Entered line</th><th>Ingredient</th><th>Strength</th><th>Daily</th><th>Matched via</th><th>Status</th></tr></thead>
@@ -243,6 +246,7 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
   <div class="wrap">
     <div class="steps"><span class="done">1 · Patient</span><span class="done">2 · Prescription</span><span class="done">3 · Confirm</span><span class="on">4 · Results</span></div>
     <div class="banner" id="covBanner" style="margin-top:18px"></div>
+    <div id="resPatientContext"></div>
     <div class="rgrid">
       <div class="panel scorecard">
         <h3 style="margin-bottom:2px">Prototype risk score</h3>
@@ -314,21 +318,27 @@ $$(".seg3").forEach(g=>g.addEventListener("click",e=>{
   $$("#"+g.id+" button").forEach(b=>b.classList.remove("on")); e.target.classList.add("on");}));
 
 /* med rows */
-function medRow(n="",d="",f=""){const r=document.createElement("div");r.className="medrow";
-  r.innerHTML=`<input placeholder="Medicine" value="${n}"><input placeholder="Dose" value="${d}"><input placeholder="Frequency" value="${f}"><button title="Remove">×</button>`;
-  r.querySelector("button").onclick=()=>r.remove();$("#medList").appendChild(r)}
+function medRow(n="",d="",f=""){
+  const r=document.createElement("div");r.className="medrow";
+  r.innerHTML=`<input placeholder="Medicine (e.g. Warfarin)" value="${esc(n)}"><input placeholder="Dose (e.g. 5mg)" value="${esc(d)}"><input placeholder="Frequency (e.g. OD)" value="${esc(f)}"><button type="button" title="Remove">×</button>`;
+  r.querySelector("button").onclick=()=>{ r.remove(); pending=null; };
+  r.querySelectorAll("input").forEach(inp=>inp.addEventListener("input",()=>{ pending=null; }));
+  $("#medList").appendChild(r);
+  pending=null;
+}
 $("#addMed").onclick=()=>medRow();
 
 function clearInputs(){
   $("#pAge").value="";
   $("#pWt").value="";
-  $$("#pGender button").forEach(b=>b.classList.remove("on"));
+  setSeg("pGender",0);
   $("#pAllergy").value="";
   setSeg("pAllergyState",0);
   setSeg("pKidney",0);
   setSeg("pLiver",0);
   $("#medList").innerHTML="";
   $("#rxLines").value="";
+  pending=null;
 }
 clearInputs();
 function setSeg(id,i){$$("#"+id+" button").forEach((b,j)=>b.classList.toggle("on",i===j))}
@@ -337,9 +347,42 @@ function segVal(id){return $$("#"+id+" button").findIndex(b=>b.classList.contain
 /* patient -> payload */
 function patient(){
   const aState=segVal("pAllergyState");
-  const allergies=aState===2?$("#pAllergy").value.split(",").map(s=>s.trim()).filter(Boolean)
-                :aState===1?[]:[];
-  return {allergies, kidney_impairment:segVal("pKidney")===2, liver_impairment:segVal("pLiver")===2};}
+  let allergies=[];
+  if(aState===2 || (aState===0 && $("#pAllergy").value.trim())){
+    allergies=$("#pAllergy").value.split(",").map(s=>s.trim()).filter(Boolean);
+  }
+  return {allergies, kidney_impairment:segVal("pKidney")===2, liver_impairment:segVal("pLiver")===2};
+}
+
+function getAllLines(){
+  const currentLines=[];
+  $$("#medList .medrow").forEach(r=>{
+    const inps=r.querySelectorAll("input");
+    const name=inps[0]?.value.trim();
+    const dose=inps[1]?.value.trim();
+    const freq=inps[2]?.value.trim();
+    if(name){
+      currentLines.push([name, dose, freq].filter(Boolean).join(" "));
+    }
+  });
+  const proposedLines=$("#rxLines").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  return {currentLines, proposedLines, allLines:[...currentLines, ...proposedLines]};
+}
+
+function getPatientSummaryHtml(){
+  const age=$("#pAge").value.trim()||"Unknown";
+  const wt=$("#pWt").value.trim()||"Unknown";
+  const gBtns=$$("#pGender button");
+  const gIdx=gBtns.findIndex(b=>b.classList.contains("on"));
+  const gender=(gIdx>0 && gBtns[gIdx])?gBtns[gIdx].textContent:"Unknown";
+  const aVal=$("#pAllergy").value.trim();
+  const allergies=aVal||(segVal("pAllergyState")===1?"None reported":"Unknown");
+  const kidney=segVal("pKidney")===2?"Impaired":(segVal("pKidney")===1?"Normal":"Unknown");
+  const liver=segVal("pLiver")===2?"Impaired":(segVal("pLiver")===1?"Normal":"Unknown");
+  const {currentLines}=getAllLines();
+  const curMeds=currentLines.length?currentLines.join(", "):"None";
+  return `<div class="pcontext-bar"><b>Patient Context:</b> Age: <span>${esc(age)}</span> · Weight: <span>${esc(wt)}</span> · Gender: <span>${esc(gender)}</span> · Allergies: <span>${esc(allergies)}</span> · Kidney: <span>${esc(kidney)}</span> · Liver: <span>${esc(liver)}</span> · Current Rx: <span>${esc(curMeds)}</span></div>`;
+}
 
 /* health */
 fetch("/health").then(r=>r.json()).then(h=>$("#kbPill").textContent=`KB: ${h.drugs} drugs · ${h.interactions.toLocaleString()} interactions`).catch(()=>{});
@@ -348,9 +391,9 @@ fetch("/health").then(r=>r.json()).then(h=>$("#kbPill").textContent=`KB: ${h.dru
 let pending=null;
 
 async function goToConfirm(){
-  const lines=$("#rxLines").value.split("\n").map(s=>s.trim()).filter(Boolean);
-  if(!lines.length){
-    alert("Please enter at least one prescription line first.");
+  const {allLines}=getAllLines();
+  if(!allLines.length){
+    alert("Please enter at least one medicine in Current Medicines or Proposed Medicines.");
     show("scr-rx");
     $("#rxLines").focus();
     return;
@@ -358,7 +401,7 @@ async function goToConfirm(){
   if(!pending){
     $("#toConfirm").textContent="Normalizing…";
     try{
-      pending=await api(lines);
+      pending=await api(allLines);
     }catch(e){
       alert("Analysis failed: "+e.message);
       show("scr-rx");
@@ -372,9 +415,9 @@ async function goToConfirm(){
 }
 
 async function goToResults(){
-  const lines=$("#rxLines").value.split("\n").map(s=>s.trim()).filter(Boolean);
-  if(!lines.length){
-    alert("Please enter at least one prescription line first.");
+  const {allLines}=getAllLines();
+  if(!allLines.length){
+    alert("Please enter at least one medicine in Current Medicines or Proposed Medicines.");
     show("scr-rx");
     $("#rxLines").focus();
     return;
@@ -383,7 +426,7 @@ async function goToResults(){
     $("#toConfirm").textContent="Analyzing…";
     $("#runAnalysis").textContent="Analyzing…";
     try{
-      pending=await api(lines);
+      pending=await api(allLines);
       renderConfirm(pending);
     }catch(e){
       alert("Analysis failed: "+e.message);
@@ -407,6 +450,7 @@ async function api(lines){
   return r.json();}
 
 function renderConfirm(rep){
+  $("#confPatientContext").innerHTML=getPatientSummaryHtml();
   const tb=$("#confTable tbody");tb.innerHTML="";let unres=0;
   rep.normalized.lines.forEach(ln=>{
     if(!ln.ingredients.length){unres++;
@@ -434,11 +478,19 @@ $$(".steps").forEach(bar=>{
 $("#rxLines").addEventListener("input",()=>{ pending=null; });
 $("#pAge").addEventListener("input",()=>{ pending=null; });
 $("#pWt").addEventListener("input",()=>{ pending=null; });
-$("#pAllergy").addEventListener("input",()=>{ pending=null; });
+$("#pAllergy").addEventListener("input",()=>{
+  if($("#pAllergy").value.trim()){
+    setSeg("pAllergyState",2);
+  } else {
+    setSeg("pAllergyState",0);
+  }
+  pending=null;
+});
 $$(".seg3").forEach(g=>g.addEventListener("click",()=>{ pending=null; }));
 
 /* results */
 function renderResults(r){lastReport=r;
+  $("#resPatientContext").innerHTML=getPatientSummaryHtml();
   const cov=r.coverage||{}, partial=(cov.status!=="full");
   const b=$("#covBanner");
   b.className="banner"+(partial?" partial":"");
