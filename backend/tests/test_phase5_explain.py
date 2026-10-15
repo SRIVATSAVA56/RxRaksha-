@@ -42,7 +42,7 @@ CASE_B = {"lines": ["Warf 5mg OD", "Crocin 500mg 1-0-1", "Dolo-650 1-0-1"], "pat
 # ---- templates ----
 def test_explanations_and_summary_present(client):
     body = client.post("/analyze", json=CASE_B).json()
-    assert body["summary"] and "Safety score 75/100" in body["summary"]
+    assert body["summary"] and "Risk score 25/100" in body["summary"]
     assert len(body["explanations"]) == 2
     heads = {e["rule_id"]: e["headline"] for e in body["explanations"]}
     assert "Drug–drug interaction" in heads["DDI-001"]

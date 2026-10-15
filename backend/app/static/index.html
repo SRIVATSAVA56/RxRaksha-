@@ -340,11 +340,16 @@ footer{border-top:1px solid var(--border); text-align:center; font-size:12.5px; 
         <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:6px 0 10px">Findings — highest severity first</h3>
         <div id="findings"></div>
         <p class="legend" id="noFindings" style="display:none">No findings detected by the available rules. This does not mean the prescription is safe — see coverage above.</p>
+        <div id="llmFindingsSection" style="display:none; margin-top:20px">
+          <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:#B45309;margin:14px 0 10px">Additional findings — AI-assisted, UNVERIFIED</h3>
+          <div id="llmFindings"></div>
+        </div>
       </div>
     </div>
     <div class="foot">
       <button class="btn ghost" data-go="scr-patient">← Edit inputs</button>
       <div style="display:flex; gap:10px; flex-wrap:wrap">
+        <button type="button" class="btn ghost" id="downloadReportBtn" style="border-color:var(--primary); color:var(--primary); font-weight:600; width:auto">📄 Download Report</button>
         <button type="button" class="btn ghost" id="saveVaultBtn" style="border-color:var(--primary); color:var(--primary); font-weight:600; width:auto">🔒 Save report to vault</button>
         <button type="button" class="btn ghost" id="newReview" style="width:auto">New review</button>
       </div>
@@ -429,6 +434,7 @@ let vaultStatus = null;
 let vaultFiles = [];
 let unlockTimer = null;
 let unlockedUntil = 0;
+let aiExplainEnabled = false;
 
 /* =========================================================================
    3. AUTH & API FETCH LOGIC
@@ -449,7 +455,7 @@ async function apiFetch(url, options = {}) {
 
   const resp = await fetch(url, opts);
   if (resp.status === 401) {
-    if (url === "/auth/google" || url === "/auth/demo") {
+    if (url === "/auth/google" || url === "/auth/demo" || url === "/vault/unlock") {
       return resp;
     }
     // Soft clear — do NOT call showLogin() here
@@ -477,9 +483,7 @@ function hideLoginNotice() {
 function loginSuccess(data) {
   token = data.token;
   currentUser = data.user;
-  if (token) {
-    localStorage.setItem("rx_token", token);
-  }
+  // localStorage.setItem("rx_token", token); <-- Removed so app forgets session on refresh
   hideLoginNotice();
   showApp();
 }
@@ -695,26 +699,13 @@ async function initAuth() {
     console.warn("Failed fetching /config:", err);
   }
 
-  const storedToken = localStorage.getItem("rx_token");
-  if (!storedToken) {
-    showLogin();
-    return;
-  }
-
-  token = storedToken;
-  try {
-    const res = await apiFetch("/me");
-    if (!res.ok) {
-      logout();
-      return;
-    }
-    const user = await res.json();
-    currentUser = user;
-    showApp();
-  } catch (err) {
-    logout();
-  }
+  // Clear any existing stored session so refreshing always lands on the login/hero page
+  localStorage.removeItem("rx_token");
+  token = null;
+  currentUser = null;
+  showLogin();
 }
+
 
 /* seg3 toggle groups */
 $$(".seg3").forEach(g=>g.addEventListener("click",e=>{
@@ -825,9 +816,21 @@ function getCurrentPatient(){
   }
   const ageVal = parseInt($("#pAge")?.value, 10);
   const wtVal = parseFloat($("#pWt")?.value);
+  const gIdx = segVal("pGender");
+  let gender = (gIdx === 0) ? "Female" : (gIdx === 1 ? "Male" : (gIdx === 2 ? "Other" : "Unknown"));
+  if (gender === "Unknown") {
+    const onBtn = $("#pGender button.on");
+    if (onBtn) {
+      const t = onBtn.textContent.trim().toUpperCase();
+      if (t === "F" || t === "FEMALE") gender = "Female";
+      else if (t === "M" || t === "MALE") gender = "Male";
+      else if (t === "OTHER") gender = "Other";
+    }
+  }
   return {
     age: isNaN(ageVal) ? 58 : ageVal,
     weight_kg: isNaN(wtVal) ? 72 : wtVal,
+    gender: gender,
     allergies,
     allergy_state: ["unknown", "none", "listed"][segVal("pAllergyState")] || "unknown",
     kidney_impairment: segVal("pKidney")===2,
@@ -858,13 +861,20 @@ function getAllLines(){
 }
 
 function getPatientSummaryHtml(){
-  const age=$("#pAge").value.trim()||"Unknown";
-  const wt=$("#pWt").value.trim()||"Unknown";
-  const gBtns=$$("#pGender button");
-  const gIdx=gBtns.findIndex(b=>b.classList.contains("on"));
-  /* FIX 4: gIdx>0 → gIdx>=0 so "F" (index 0) shows correctly instead of "Unknown" */
-  const gender=(gIdx>=0 && gBtns[gIdx])?gBtns[gIdx].textContent:"Unknown";
-  const aVal=$("#pAllergy").value.trim();
+  const age=$("#pAge")?.value?.trim()||"Unknown";
+  const wt=$("#pWt")?.value?.trim()||"Unknown";
+  const gIdx=segVal("pGender");
+  let gender=(gIdx===0)?"Female":(gIdx===1)?"Male":(gIdx===2)?"Other":"Unknown";
+  if(gender==="Unknown"){
+    const onBtn=$("#pGender button.on");
+    if(onBtn){
+      const t=onBtn.textContent.trim().toUpperCase();
+      if(t==="F"||t==="FEMALE") gender="Female";
+      else if(t==="M"||t==="MALE") gender="Male";
+      else if(t==="OTHER") gender="Other";
+    }
+  }
+  const aVal=$("#pAllergy")?.value?.trim();
   const allergies=aVal||(segVal("pAllergyState")===1?"None reported":"Unknown");
   const kidney=segVal("pKidney")===2?"Impaired":(segVal("pKidney")===1?"Normal":"Unknown");
   const liver=segVal("pLiver")===2?"Impaired":(segVal("pLiver")===1?"Normal":"Unknown");
@@ -878,6 +888,9 @@ fetch("/health").then(r=>{
   if(!r.ok) throw new Error("Health check non-ok");
   return r.json();
 }).then(h=>{
+  if(h && h.ai_explain){
+    aiExplainEnabled = true;
+  }
   const pill=$("#kbPill");
   if(h && h.drugs && h.interactions && pill){
     pill.textContent=`KB: ${h.drugs} drugs · ${h.interactions.toLocaleString()} interactions`;
@@ -1250,8 +1263,138 @@ if(extractBtn){
   });
 }
 
+let currentUtterance = null;
+function speakText(text, btnElement) {
+  stopSpeaking();
+  if (!('speechSynthesis' in window)) {
+    alert("Speech synthesis is not supported in this browser.");
+    return;
+  }
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "en-US";
+  utterance.rate = 0.95;
+  utterance.pitch = 1.0;
+  if (btnElement) {
+    btnElement.textContent = "🔊 Speaking…";
+  }
+  utterance.onend = () => {
+    currentUtterance = null;
+    if (btnElement) btnElement.textContent = "🔊 Listen";
+  };
+  utterance.onerror = () => {
+    currentUtterance = null;
+    if (btnElement) btnElement.textContent = "🔊 Listen";
+  };
+  currentUtterance = utterance;
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopSpeaking() {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+  currentUtterance = null;
+  $$(".btn-tts-listen").forEach(b => {
+    b.textContent = "🔊 Listen";
+  });
+}
+
+/* Plain-language generators for everyday human understanding */
+function getPlainLanguageHarms(f) {
+  if (!f) return "";
+  const title = f.title || (Array.isArray(f.ingredients) ? f.ingredients.join(" + ") : "Clinical Finding");
+  const cat = (f.category || "ddi").toLowerCase();
+  const sev = (f.severity || "unknown").toLowerCase();
+  const ingStr = (Array.isArray(f.ingredients) ? f.ingredients.join(" ").toLowerCase() : "") + " " + title.toLowerCase();
+
+  if (cat === "ddi") {
+    if (ingStr.includes("warfarin") && (ingStr.includes("omeprazole") || ingStr.includes("aspirin"))) {
+      return "Omeprazole makes warfarin (blood thinner) work too strongly. This significantly raises your risk of bleeding — such as easy bruising, bleeding in your stomach or bowel (dark or bloody stools), and blood in your urine.";
+    } else if (ingStr.includes("warfarin") && ingStr.includes("metoprolol")) {
+      return "These medicines together can affect your blood thinning and heart rate. Your doctor needs to check your blood tests and pulse regularly.";
+    } else if (ingStr.includes("omeprazole") && ingStr.includes("metoprolol")) {
+      return "Omeprazole slows down how your body breaks down metoprolol (blood pressure medicine). This can cause a dangerously slow heartbeat, very low blood pressure, dizziness, and extreme tiredness.";
+    } else {
+      if (sev === "contraindicated") {
+        return "Dangerous medicine clash. Taking these together can cause severe, life-threatening reactions or make your medicines stop working. These should not be taken together.";
+      } else if (sev === "major") {
+        return "High risk of serious side effects, organ strain, or abnormal heart rate. A doctor or pharmacist must carefully check if this combination is safe for you.";
+      } else if (sev === "moderate") {
+        return "These medicines can interfere with each other, making side effects more likely or making one medicine less effective. Watch for unusual symptoms and let your doctor know.";
+      } else if (sev === "minor") {
+        return "Mild interaction with low risk. Usually safe, but keep an eye out for minor side effects like mild stomach upset or drowsiness.";
+      } else {
+        return "These medicines have a known interaction. Keep track of how you feel and report any unusual symptoms to your doctor.";
+      }
+    }
+  } else if (cat === "duplicate") {
+    return "You are taking two medicines that contain the same or similar active ingredient. This doubles your dose and can lead to an accidental overdose.";
+  } else if (cat === "dose") {
+    return "The prescribed dose is higher than recommended for your age or weight. This can overload your body and harm your liver or kidneys.";
+  } else if (cat === "allergy") {
+    return "High risk of an allergic reaction. This can cause skin rashes, hives, swelling of your face or throat, and trouble breathing.";
+  } else if (cat === "organ") {
+    return "This medicine can put extra stress on your kidneys or liver. Because of your health history, it may build up to dangerous levels in your body.";
+  }
+  return "Documented safety concern. Please have your doctor or pharmacist review this medicine.";
+}
+
+function formatPlainLanguageSummary(report, rawSummary) {
+  if (!report) return rawSummary || "";
+  const score = report.score !== undefined ? report.score : "";
+  const band = report.band || "";
+  const findings = report.findings || [];
+  const n = findings.length;
+
+  let bandMeaning = "";
+  if (band === "Safe") bandMeaning = "No major safety concerns detected.";
+  else if (band === "Caution") bandMeaning = "A few mild cautions were found that you should keep an eye on.";
+  else if (band === "Warning") bandMeaning = "Important safety risks were found with your medicine combination.";
+  else if (band === "High Risk") bandMeaning = "Major issues present; high risk of harmful side effects.";
+  else if (band === "Critical") bandMeaning = "Dangerous medicine clashes were detected that need immediate attention.";
+
+  let text = `Prescription Risk Score: ${score}/100 (${band}). ${bandMeaning}`;
+
+  if (n === 0) {
+    text += " None of your entered medicines clash with each other based on known safety databases.";
+  } else if (n === 1) {
+    const top = findings[0];
+    const topName = top.title || (Array.isArray(top.ingredients) ? top.ingredients.join(" and ") : "a medicine");
+    text += ` We found 1 safety alert: ${topName} (${top.severity || "moderate"} risk).`;
+  } else {
+    const top = findings[0];
+    const topName = top.title || (Array.isArray(top.ingredients) ? top.ingredients.join(" and ") : "a medicine");
+    text += ` We found ${n} safety alerts with your medicines. The most important one is ${topName} (${top.severity || "moderate"} risk).`;
+  }
+
+  // Profile completeness check
+  const skipped = (report.coverage && report.coverage.checks)
+    ? report.coverage.checks.filter(c => !c.ran).map(c => c.check)
+    : [];
+  if (skipped.length > 0) {
+    const readableSkipped = [];
+    if (skipped.includes("allergy")) readableSkipped.push("drug allergies");
+    if (skipped.includes("organ")) readableSkipped.push("kidney/liver health");
+    if (readableSkipped.length) {
+      text += ` Note: We could not check for ${readableSkipped.join(" or ")} because your patient profile did not include this information.`;
+    }
+  }
+
+  // Unrecognized lines check
+  const normCov = report.coverage || {};
+  const unrec = normCov.unmatched || 0;
+  if (unrec > 0) {
+    text += ` Also, ${unrec} medicine name${unrec > 1 ? "s were" : " was"} not recognized in our database.`;
+  }
+
+  text += " What to do: Please show this report to your doctor or pharmacist so they can review your prescription. Do not stop taking any prescribed medicine on your own without talking to them first.";
+
+  return text;
+}
+
 /* results */
 function renderResults(r){
+  stopSpeaking();
   lastReport=r;
   const sNotice = document.getElementById("saveVaultNotice");
   if (sNotice) sNotice.style.display = "none";
@@ -1273,7 +1416,11 @@ function renderResults(r){
   $("#counts").innerHTML=[["contraindicated","CRITICAL","crit"],["major","HIGH","high"],["moderate","MOD","mod"],["minor","LOW","low"]]
     .map(([k,l,c])=>`<div style="background:var(--${c}-bg);color:var(--${c})"><b>${cnt[k]||0}</b>${l}</div>`).join("");
   $("#ledger").innerHTML=r.score_ledger.map(l=>`<li>${esc(l.source)}: ${esc(l.detail)} (${l.delta>0?"+":""}${l.delta})</li>`).join("");
-  $("#summaryPanel").innerHTML=`<b>Summary</b><p style="font-size:14px;margin-top:6px">${esc(r.summary)}</p>`;
+  const plainSummary = formatPlainLanguageSummary(r, r.summary);
+  $("#summaryPanel").innerHTML=`<b>Summary</b><p style="font-size:14px;margin-top:6px;line-height:1.5">${esc(plainSummary)}</p>
+  <div style="margin-top:8px; font-size:11.5px; color:#64748B; border-top:1px dashed var(--border); padding-top:6px; display:flex; align-items:center; gap:5px">
+    <span>ℹ️</span> <span>AI can make mistakes. Please check important info.</span>
+  </div>`;
   const order={contraindicated:0,major:1,moderate:2,minor:3,unknown:4};
   const fs=[...r.findings].sort((a,b)=>(order[a.severity]??5)-(order[b.severity]??5));
   $("#noFindings").style.display=fs.length?"none":"block";
@@ -1283,14 +1430,635 @@ function renderResults(r){
         <div class="fmeta">${f.rule_id} · ${f.category} · source: ${esc(f.evidence_source)} · KB ${esc(f.kb_version)}</div></div>
         <span class="sev ${SEVC[f.severity]||"low"}">${f.severity.toUpperCase()}</span></div>
       <p style="font-size:14px">${esc(f.mechanism)}</p>
-      <details><summary>Reasoning chain (${f.reasoning_chain.length} steps)</summary>
+      <div style="margin-top:8px; padding:8px 10px; background:#FFF5F5; border-left:3px solid #B42318; border-radius:0 4px 4px 0; font-size:13px; color:#4B1113; line-height:1.4">
+        <b>Possible clinical harms:</b> ${esc(getPlainLanguageHarms(f))}
+      </div>
+      <details style="margin-top:8px"><summary>Reasoning chain (${f.reasoning_chain.length} steps)</summary>
         <ol>${f.reasoning_chain.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></details>
+      ${aiExplainEnabled ? `
+        <div style="margin-top:12px">
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <button type="button" class="btn ghost btn-explain-ai" data-idx="${i}" data-aud="patient" style="font-size:12px; padding:5px 12px; width:auto; border-radius:6px; font-weight:600; cursor:pointer">🗣️ Patient Voice</button>
+            <button type="button" class="btn ghost btn-explain-ai" data-idx="${i}" data-aud="clinician" style="font-size:12px; padding:5px 12px; width:auto; border-radius:6px; font-weight:600; cursor:pointer">🩺 Clinician Note</button>
+          </div>
+          <div class="ai-explain-box" id="aiExplainBox_${i}" style="display:none; margin-top:8px; padding:12px 14px; background:#F8FAFC; border:1px solid var(--border); border-radius:8px"></div>
+          <div style="margin-top:6px; font-size:11.5px; color:#64748B; display:flex; align-items:center; gap:4px">
+            <span style="opacity:0.7">ℹ️</span> <span>AI can make mistakes. Please check important info.</span>
+          </div>
+        </div>
+      ` : ""}
     </div>`).join("");
+
+  if (aiExplainEnabled) {
+    $$(".btn-explain-ai").forEach(btn => {
+      btn.onclick = async () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        const f = fs[idx];
+        if (!f) return;
+        const box = document.getElementById(`aiExplainBox_${idx}`);
+        if (!box) return;
+
+        const aud = btn.dataset.aud || "clinician";
+        btn.disabled = true;
+        const origText = btn.textContent;
+        btn.textContent = "Asking...";
+
+        const patient = getCurrentPatient();
+        const payload = {
+          category: f.category,
+          severity: f.severity,
+          ingredients: f.ingredients,
+          evidence_source: f.evidence_source,
+          kb_version: f.kb_version,
+          data: f.data || null,
+          age: (patient && typeof patient.age === "number") ? patient.age : null,
+          audience: aud
+        };
+
+        try {
+          const resp = await apiFetch("/analyze/explain", {
+            method: "POST",
+            body: JSON.stringify(payload)
+          });
+          if (!resp.ok) {
+            box.style.display = "block";
+            box.textContent = "AI explanation unavailable";
+            btn.disabled = false;
+            btn.textContent = origText;
+            return;
+          }
+          const resData = await resp.json();
+          const expl = resData.ai_explanation;
+          f.ai_explanation = expl;
+          box.style.display = "block";
+          box.textContent = "";
+
+          const heading = document.createElement("div");
+          heading.style.fontWeight = "600";
+          heading.style.fontSize = "12px";
+          heading.style.color = "var(--primary)";
+          heading.style.marginBottom = "4px";
+          const audBadge = expl.audience === "patient" ? "[Patient Voice] " : "[Clinician Note] ";
+          const modelPart = expl.model ? ` (${expl.model})` : "";
+          heading.textContent = `${audBadge}${expl.label}${modelPart}`;
+
+          const body = document.createElement("div");
+          body.style.fontSize = "13.5px";
+          body.style.lineHeight = "1.5";
+          body.style.color = "var(--text)";
+          body.textContent = expl.text;
+
+          box.appendChild(heading);
+          box.appendChild(body);
+
+          const audioBar = document.createElement("div");
+          audioBar.style.display = "flex";
+          audioBar.style.gap = "8px";
+          audioBar.style.alignItems = "center";
+          audioBar.style.marginTop = "10px";
+          audioBar.style.paddingTop = "8px";
+          audioBar.style.borderTop = "1px solid var(--border)";
+
+          const listenBtn = document.createElement("button");
+          listenBtn.type = "button";
+          listenBtn.className = "btn btn-tts-listen";
+          listenBtn.style.cssText = "font-size:12px; padding:4px 10px; width:auto; border-radius:6px; font-weight:600; cursor:pointer; background:#F1F5F9; color:#0F172A; border:1px solid var(--border)";
+          listenBtn.textContent = "🔊 Listen";
+          listenBtn.onclick = () => speakText(expl.text, listenBtn);
+
+          const stopBtn = document.createElement("button");
+          stopBtn.type = "button";
+          stopBtn.className = "btn btn-tts-stop";
+          stopBtn.style.cssText = "font-size:12px; padding:4px 10px; width:auto; border-radius:6px; font-weight:600; cursor:pointer; background:#F1F5F9; color:#0F172A; border:1px solid var(--border)";
+          stopBtn.textContent = "⏹ Stop";
+          stopBtn.onclick = () => stopSpeaking();
+
+          const ttsHint = document.createElement("span");
+          ttsHint.style.fontSize = "11px";
+          ttsHint.style.color = "var(--text-muted)";
+          ttsHint.textContent = "Built-in browser audio";
+
+          audioBar.appendChild(listenBtn);
+          audioBar.appendChild(stopBtn);
+          audioBar.appendChild(ttsHint);
+          box.appendChild(audioBar);
+
+          const disclaimerEl = document.createElement("div");
+          disclaimerEl.style.cssText = "margin-top:8px; padding-top:6px; border-top:1px dashed var(--border); font-size:11.5px; color:#64748B; display:flex; align-items:center; gap:5px";
+          disclaimerEl.innerHTML = "<span>ℹ️</span> <em>AI can make mistakes. Please check important info.</em>";
+          box.appendChild(disclaimerEl);
+
+          btn.disabled = false;
+          btn.textContent = origText;
+        } catch (err) {
+          box.style.display = "block";
+          box.textContent = "AI explanation unavailable";
+          btn.disabled = false;
+          btn.textContent = origText;
+        }
+      };
+    });
+  }
+
+  const llmFs = r.llm_findings || [];
+  const llmSec = document.getElementById("llmFindingsSection");
+  const llmContainer = document.getElementById("llmFindings");
+  if (llmFs.length && llmSec && llmContainer) {
+    llmSec.style.display = "block";
+    llmContainer.innerHTML = llmFs.map(lf => {
+      const ixs = (lf.interactions || []).map(ix => `
+        <div style="margin-top:6px; padding:8px 10px; background:#FEF3C7; border-left:3px solid #D97706; font-size:12px; color:#92400E; border-radius:0 4px 4px 0">
+          <b>Interaction with ${esc(ix.with)}:</b> [${esc(ix.severity).toUpperCase()}] ${esc(ix.note || "")}
+        </div>
+      `).join("");
+      return `
+        <div class="fcard" style="--fc:#D97706; border:1px solid #FCD34D; background:#FFFDF5; margin-bottom:12px">
+          <div class="top">
+            <div>
+              <h4 style="color:#92400E">${esc(lf.entered_line)}</h4>
+              <div class="fmeta" style="color:#78716C">
+                AI-Extracted: <b>${esc(lf.ingredient || "Unspecified")}</b>
+                ${lf.strength_mg ? " · " + lf.strength_mg + "mg" : ""}
+                ${lf.confidence ? " · Confidence: " + esc(lf.confidence) : ""}
+              </div>
+            </div>
+            <span style="display:inline-block; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; text-transform:uppercase">
+              AI-RESOLVED — UNVERIFIED
+            </span>
+          </div>
+          ${ixs}
+          <div style="margin-top:8px; font-size:11px; color:#78716C">
+            Source: ${esc(lf.source || "llm-web-search")}${lf.sources && lf.sources.length ? " (" + esc(lf.sources.join(", ")) + ")" : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+  } else if (llmSec) {
+    llmSec.style.display = "none";
+  }
 }
 
 /* =========================================================================
-   5. VAULT: SAVE REPORT (from scr-results)
+   5. REPORT EXPORT (PDF) & VAULT SAVE (from scr-results)
    ========================================================================= */
+function buildReportPrintHtml(report, patient) {
+  const p = patient || report.patient_context || (typeof getCurrentPatient === "function" ? getCurrentPatient() : {}) || {};
+  const ageStr = (p.age !== undefined && p.age !== null) ? `${p.age} years` : "Unknown";
+  const wtStr = (p.weight_kg !== undefined && p.weight_kg !== null) ? `${p.weight_kg} kg` : "Unknown";
+  let genderStr = "Unknown";
+  if (p.gender) {
+    const g = String(p.gender).trim().toLowerCase();
+    if (g === "f" || g === "female") genderStr = "Female";
+    else if (g === "m" || g === "male") genderStr = "Male";
+    else if (g === "other") genderStr = "Other";
+    else genderStr = p.gender;
+  }
+  if (genderStr === "Unknown" && typeof segVal === "function") {
+    const gIdx = segVal("pGender");
+    if (gIdx === 0) genderStr = "Female";
+    else if (gIdx === 1) genderStr = "Male";
+    else if (gIdx === 2) genderStr = "Other";
+    else {
+      const onBtn = document.querySelector("#pGender button.on");
+      if (onBtn) {
+        const t = onBtn.textContent.trim().toUpperCase();
+        if (t === "F" || t === "FEMALE") genderStr = "Female";
+        else if (t === "M" || t === "MALE") genderStr = "Male";
+        else if (t === "OTHER") genderStr = "Other";
+      }
+    }
+  }
+  let allergiesStr = "Unknown";
+  if (Array.isArray(p.allergies) && p.allergies.length) {
+    allergiesStr = p.allergies.join(", ");
+  } else if (p.allergy_state === "none") {
+    allergiesStr = "None reported";
+  } else if (typeof p.allergies === "string" && p.allergies.trim()) {
+    allergiesStr = p.allergies.trim();
+  }
+
+  const kidneyStr = p.kidney_impairment ? "Impaired" : (p.kidney_impairment === false ? "Normal" : "Unknown");
+  const liverStr = p.liver_impairment ? "Impaired" : (p.liver_impairment === false ? "Normal" : "Unknown");
+
+  // Format local date (avoiding UTC offset shift)
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const today = `${y}-${m}-${d}`;
+  const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+
+  const score = report.score ?? "–";
+  const band = report.band ?? "Unknown";
+  const action = report.action ?? "";
+
+  let bandBg = "#FEE4E2", bandColor = "#B42318";
+  if (band === "Safe") { bandBg = "#D1FADF"; bandColor = "#0F766E"; }
+  else if (band === "Caution" || band === "Warning") { bandBg = "#FEF0C7"; bandColor = "#B54708"; }
+
+  // 1. Clinical Summary
+  let summaryText = formatPlainLanguageSummary(report, report.summary);
+  if (!summaryText && typeof document !== "undefined") {
+    const sumEl = document.getElementById("summaryPanel");
+    if (sumEl) {
+      summaryText = sumEl.textContent.replace(/^Summary\s*/i, "").trim();
+    }
+  }
+  if (!summaryText) {
+    summaryText = "Prescription safety review completed. Please review the flagged medicine findings and notes below.";
+  }
+
+  // 2. Findings list, highest severity first
+  const findings = report.findings || [];
+  const order = { contraindicated: 0, major: 1, moderate: 2, minor: 3, unknown: 4 };
+  const sortedFindings = [...findings].sort((a, b) => (order[a.severity] ?? 5) - (order[b.severity] ?? 5));
+
+  const findingsHtml = sortedFindings.length ? sortedFindings.map((f, i) => {
+    let fSevBg = "#FEE4E2", fSevColor = "#B42318";
+    const sev = (f.severity || "unknown").toLowerCase();
+    if (sev === "moderate") { fSevBg = "#FEF0C7"; fSevColor = "#B54708"; }
+    else if (sev === "minor" || sev === "unknown") { fSevBg = "#F1F5F9"; fSevColor = "#475467"; }
+
+    const title = f.title || (Array.isArray(f.ingredients) ? f.ingredients.join(" + ") : "Clinical Finding");
+    const sourceLabel = `${f.evidence_source || "DDInter 2.0"}${f.kb_version ? " · KB " + f.kb_version : ""}`;
+    const possibleHarms = getPlainLanguageHarms(f);
+
+    const aiNoteHtml = (f.ai_explanation && f.ai_explanation.text) ? `
+      <div style="margin-top:8px; padding:10px 12px; background:#F0FDF4; border-left:3px solid #16A34A; border-radius:0 6px 6px 0; font-size:13px; line-height:1.5">
+        <div style="font-weight:700; color:#16A34A; margin-bottom:3px">AI Clinical Note (${esc(f.ai_explanation.model || "LLM")}, unverified):</div>
+        <div style="color:#166534">${esc(f.ai_explanation.text)}</div>
+        <div style="margin-top:6px; font-size:11px; color:#64748B; font-style:italic; border-top:1px dashed #BBF7D0; padding-top:4px">
+          ℹ️ AI can make mistakes. Please check important info.
+        </div>
+      </div>
+    ` : "";
+
+    return `
+      <div style="margin-bottom:16px; padding:14px 18px; border:1px solid #E2E8F0; border-radius:8px; page-break-inside:avoid; background:#fff">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:8px">
+          <div>
+            <div style="font-weight:700; font-size:15px; color:#0F172A">${esc(title)}</div>
+            <div style="font-size:12px; color:#64748B; margin-top:2px">Rule: ${esc(f.rule_id || "—")} · ${esc(f.category || "General")} · Source: ${esc(sourceLabel)}</div>
+          </div>
+          <span style="display:inline-block; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:700; background:${fSevBg}; color:${fSevColor}; text-transform:uppercase">
+            ${esc(f.severity || "unknown")}
+          </span>
+        </div>
+
+        ${possibleHarms ? `
+          <div style="margin-top:8px; padding:10px 12px; background:#FFF5F5; border-left:3px solid #B42318; border-radius:0 6px 6px 0; font-size:13px; line-height:1.5">
+            <div style="font-weight:700; color:#B42318; margin-bottom:3px">Possible clinical harms (side effects):</div>
+            <div style="color:#4B1113">${esc(possibleHarms)}</div>
+          </div>
+        ` : ""}
+
+        ${aiNoteHtml}
+        <div style="margin-top:8px; font-size:11px; color:#94A3B8; text-align:right">
+          AI can make mistakes. Please check important info.
+        </div>
+      </div>
+    `;
+  }).join("") : `<div style="padding:16px; color:#64748B; font-size:14px; background:#F8FAFC; border-radius:8px">No risk findings detected by active safety rules.</div>`;
+
+  const llmFindings = report.llm_findings || [];
+  let llmFindingsPdfHtml = "";
+  if (llmFindings && llmFindings.length) {
+    const cards = llmFindings.map(lf => {
+      const ixs = (lf.interactions || []).map(ix => `
+        <div style="margin-top:6px; padding:6px 10px; background:#FEF3C7; border-left:3px solid #D97706; font-size:12px; color:#92400E">
+          <b>Interaction with ${esc(ix.with)}:</b> [${esc(ix.severity).toUpperCase()}] ${esc(ix.note || "")}
+        </div>
+      `).join("");
+      return `
+        <div style="margin-bottom:12px; padding:12px 16px; border:1px solid #FCD34D; border-radius:8px; background:#FFFDF5; page-break-inside:avoid">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px">
+            <div>
+              <div style="font-weight:700; font-size:14px; color:#92400E">${esc(lf.entered_line)}</div>
+              <div style="font-size:12px; color:#64748B; margin-top:2px">
+                AI-Extracted Ingredient: <b>${esc(lf.ingredient || "Unspecified")}</b>
+                ${lf.strength_mg ? " · " + lf.strength_mg + "mg" : ""}
+                ${lf.confidence ? " · Confidence: " + esc(lf.confidence) : ""}
+              </div>
+            </div>
+            <span style="display:inline-block; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; text-transform:uppercase">
+              AI-RESOLVED — UNVERIFIED
+            </span>
+          </div>
+          ${ixs}
+          <div style="margin-top:6px; font-size:11px; color:#78716C">
+            Source: ${esc(lf.source || "llm-web-search")}${lf.sources && lf.sources.length ? " (" + esc(lf.sources.join(", ")) + ")" : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    llmFindingsPdfHtml = `
+      <div class="section-title" style="color:#B45309; margin-top:22px">Additional Findings — AI-Assisted, UNVERIFIED</div>
+      <div style="margin-bottom:10px; font-size:12px; color:#92400E; background:#FEF3C7; padding:8px 12px; border-radius:6px; border:1px solid #FCD34D">
+        ⚠ <b>Advisory:</b> The following findings were generated via LLM web-grounded lookup for prescription lines not matched in DDInter. These findings do <b>not</b> alter the deterministic risk score. AI can make mistakes — please check important info with authoritative medical references.
+      </div>
+      <div>${cards}</div>
+    `;
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>RxRaksha_Report_${today}.pdf</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #0F172A;
+      background: #F8FAFC;
+      line-height: 1.5;
+      padding: 0;
+    }
+    .top-action-bar {
+      position: sticky;
+      top: 0;
+      background: #0F172A;
+      color: #fff;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 1000;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .top-action-bar button {
+      background: #0F766E;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .top-action-bar button:hover { background: #0D655E; }
+    .top-action-bar .close-btn {
+      background: transparent;
+      border: 1px solid #475467;
+      margin-left: 8px;
+    }
+    .report-sheet {
+      max-width: 820px;
+      margin: 24px auto;
+      background: #fff;
+      padding: 36px 40px;
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+      border: 1px solid #E2E8F0;
+    }
+    .header-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #0F766E;
+      padding-bottom: 16px;
+      margin-bottom: 20px;
+    }
+    .header-box h1 {
+      font-size: 22px;
+      color: #0F766E;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .header-box .meta {
+      font-size: 12px;
+      color: #64748B;
+      text-align: right;
+    }
+    .pcontext-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+    }
+    .pcontext-item b {
+      color: #475467;
+      font-weight: 600;
+    }
+    .pcontext-item span {
+      color: #0F172A;
+      font-weight: 500;
+      margin-left: 4px;
+    }
+    .score-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-radius: 8px;
+      background: ${bandBg};
+      border: 1px solid ${bandColor}40;
+      margin-bottom: 14px;
+    }
+    .score-left {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .score-num {
+      font-size: 32px;
+      font-weight: 800;
+      color: ${bandColor};
+      line-height: 1;
+    }
+    .score-denom {
+      font-size: 14px;
+      color: ${bandColor};
+      font-weight: 600;
+    }
+    .score-band {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 14px;
+      color: #fff;
+      background: ${bandColor};
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .score-action {
+      font-size: 13px;
+      color: ${bandColor};
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    .section-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #64748B;
+      font-weight: 700;
+      margin: 20px 0 10px;
+    }
+    .summary-box {
+      padding: 14px 16px;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #334155;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+    .footer-disclaimer {
+      margin-top: 28px;
+      padding-top: 14px;
+      border-top: 1px solid #E2E8F0;
+      font-size: 11px;
+      color: #64748B;
+      text-align: center;
+      line-height: 1.5;
+    }
+    @media print {
+      body { background: #fff; }
+      .top-action-bar { display: none !important; }
+      .report-sheet {
+        margin: 0;
+        padding: 0;
+        border: none;
+        box-shadow: none;
+        max-width: 100%;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 15mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="top-action-bar">
+    <div style="font-size:13px; font-weight:600">RxRaksha Safety Report Preview</div>
+    <div>
+      <button type="button" onclick="window.print()">🖨️ Print / Save as PDF</button>
+      <button type="button" class="close-btn" onclick="window.close()">✖ Close</button>
+    </div>
+  </div>
+
+  <div class="report-sheet">
+    <div class="header-box">
+      <div>
+        <h1>RxRaksha Prescription Safety Report</h1>
+        <div style="font-size:13px; color:#475467; margin-top:2px">Clinical Decision Support · Deterministic Rules Engine</div>
+      </div>
+      <div class="meta">
+        <div><b>Date:</b> ${dateStr}</div>
+        <div><b>Status:</b> Official Clinical Review</div>
+      </div>
+    </div>
+
+    <div class="pcontext-grid">
+      <div class="pcontext-item"><b>Age:</b><span>${esc(ageStr)}</span></div>
+      <div class="pcontext-item"><b>Weight:</b><span>${esc(wtStr)}</span></div>
+      <div class="pcontext-item"><b>Gender:</b><span>${esc(genderStr)}</span></div>
+      <div class="pcontext-item"><b>Allergies:</b><span>${esc(allergiesStr)}</span></div>
+      <div class="pcontext-item"><b>Kidney:</b><span>${esc(kidneyStr)}</span></div>
+      <div class="pcontext-item"><b>Liver:</b><span>${esc(liverStr)}</span></div>
+    </div>
+
+    <div class="score-card">
+      <div>
+        <div class="score-left">
+          <span class="score-num">${score}</span>
+          <span class="score-denom">/ 100</span>
+        </div>
+        <div class="score-action">${esc(action)}</div>
+      </div>
+      <div style="text-align:right">
+        <span class="score-band">${esc(band)}</span>
+      </div>
+    </div>
+
+
+    <div class="section-title">Clinical Summary</div>
+    <div class="summary-box">
+      ${esc(summaryText)}
+      <div style="margin-top:8px; font-size:11px; color:#64748B; border-top:1px dashed #CBD5E1; padding-top:6px">
+        ℹ️ AI can make mistakes. Please check important info.
+      </div>
+    </div>
+
+    <div class="section-title">Findings — Highest Severity First</div>
+    <div>
+      ${findingsHtml}
+    </div>
+
+    ${llmFindingsPdfHtml}
+
+    <div class="footer-disclaimer">
+      Not a validated clinical probability. Pharmacist review advised. AI can make mistakes — please check important info.<br>
+      RxRaksha Prescription Safety System · Decision-support only · Not a substitute for pharmacist review.
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener("DOMContentLoaded", function() {
+      setTimeout(function() {
+        window.print();
+      }, 350);
+    });
+  <\/script>
+</body>
+</html>`;
+}
+
+function downloadReportPdf(report) {
+  if (!report) {
+    alert("No active prescription report to download. Please enter medicines and click 'Review & Normalize' first.");
+    return;
+  }
+
+  const findings = report.findings || [];
+  const score = report.score;
+  const band = report.band;
+
+  // FAIL LOUDLY: If findings are empty but score is not the baseline safe score (100)
+  if ((!findings || findings.length === 0) && score !== undefined && score !== null && score !== 100) {
+    console.error("Contradictory report: Score is " + score + " (" + band + ") but findings list is empty.", report);
+    alert("Cannot generate report: Incomplete or contradictory report data (Score: " + score + " / " + band + ", but 0 findings detected). Please run a fresh prescription review on the analysis screen.");
+    return;
+  }
+
+  const p = (typeof getCurrentPatient === "function" ? getCurrentPatient() : {}) || report.patient_context || {};
+  const html = buildReportPrintHtml(report, p);
+  const blob = new Blob([html], { type: "text/html" });
+  const blobUrl = URL.createObjectURL(blob);
+  const w = window.open(blobUrl, "_blank");
+  if (!w) {
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    a.download = `RxRaksha_Report_${y}-${m}-${d}.html`;
+    a.click();
+  }
+}
+
+const downloadReportBtn = document.getElementById("downloadReportBtn");
+if (downloadReportBtn) {
+  downloadReportBtn.onclick = () => {
+    if (!lastReport) {
+      alert("No active prescription report to download. Please enter medicines and click 'Review & Normalize' first.");
+      return;
+    }
+    downloadReportPdf(lastReport);
+  };
+}
+
 const saveVaultBtn = document.getElementById("saveVaultBtn");
 if (saveVaultBtn) {
   saveVaultBtn.onclick = async () => {
@@ -1301,9 +2069,13 @@ if (saveVaultBtn) {
     saveVaultBtn.textContent = "Saving…";
 
     try {
+      const payload = {
+        ...lastReport,
+        patient_context: (typeof getCurrentPatient === "function") ? getCurrentPatient() : {}
+      };
       const resp = await apiFetch("/vault/save-report", {
         method: "POST",
-        body: JSON.stringify(lastReport)
+        body: JSON.stringify(payload)
       });
 
       if (resp.status === 200) {
@@ -1977,6 +2749,16 @@ function renderVaultFileList() {
           return;
         }
         const blob = await res.blob();
+        if (file.kind === "report") {
+          try {
+            const reportText = await blob.text();
+            const reportData = JSON.parse(reportText);
+            downloadReportPdf(reportData);
+            return;
+          } catch (e) {
+            console.error("Error parsing report from vault", e);
+          }
+        }
         const objUrl = URL.createObjectURL(blob);
         window.open(objUrl, "_blank");
       } catch (err) {

@@ -36,13 +36,13 @@ def run(env, lines, patient=None):
 
 def test_clean_prescription_scores_100(env):
     r = run(env, ["Thyronorm 100mcg OD"])
-    # 0 deductions -> safe score 100
-    assert r.score == 100 and r.band == "Safe" and [l for l in r.ledger if l["delta"] != 0] == []
+    # 0 risk points -> safe score 0
+    assert r.score == 0 and r.band == "Safe" and [l for l in r.ledger if l["delta"] != 0] == []
 
 def test_moderate_pair_caps_at_75(env):
-    # warfarin+paracetamol (moderate DDI) + duplicate (moderate) -> deductions 12+12=24 -> raw 76, cap 75
+    # warfarin+paracetamol (moderate DDI) + duplicate (moderate) -> risk points 12+12=24 -> floor 25
     r = run(env, ["Warf 5mg OD", "Crocin 500mg 1-0-1", "Dolo-650 1-0-1"])
-    assert r.score == 75 and r.band == "Caution"
+    assert r.score == 25 and r.band == "Caution"
     assert r.cap_applied and "moderate" in r.cap_applied
     assert any(l["source"] == "DDI-001" for l in r.ledger)
     assert any(l["source"] == "DUP-001" for l in r.ledger)
@@ -50,11 +50,11 @@ def test_moderate_pair_caps_at_75(env):
 def test_major_finding_caps_at_50(env):
     r = run(env, ["Crocin 500mg QID", "Dolo-650 QID"])   # 4600 > 4000 -> DOSE-001 major
     assert r.score == 50 and r.band == "Warning"
-    assert any(l["source"] == "DOSE-001" and l["delta"] == -WEIGHTS["major"] for l in r.ledger)
+    assert any(l["source"] == "DOSE-001" and l["delta"] == WEIGHTS["major"] for l in r.ledger)
 
 def test_unmatched_lines_cost_points(env):
     r = run(env, ["Thyronorm 100mcg OD", "Blorfazep 10mg OD"])   # 1 unmatched
-    assert r.score == 100 - 3 and r.band == "Safe"
+    assert r.score == 3 and r.band == "Safe"
     assert any(l["source"] == "coverage" for l in r.ledger)
 
 def test_skipped_checks_recorded_zero_delta(env):
@@ -85,7 +85,7 @@ def test_analyze_endpoint_case_b(client):
     body = client.post("/analyze", json={
         "lines": ["Warf 5mg OD", "Crocin 500mg 1-0-1", "Dolo-650 1-0-1"],
         "patient": {}}).json()
-    assert body["score"] == 75 and body["band"] == "Caution"
+    assert body["score"] == 25 and body["band"] == "Caution"
     rules = {f["rule_id"] for f in body["findings"]}
     assert {"DDI-001", "DUP-001"} <= rules
     assert body["findings"][0]["reasoning_chain"]          # explanation contract
@@ -100,26 +100,24 @@ def test_analyze_patient_allergy_flows_through(client):
         "lines": ["Augmentin 625 TDS"],
         "patient": {"allergies": ["penicillin"]}}).json()
     a = [f for f in body["findings"] if f["rule_id"].startswith("ALLERGY")]
-    assert len(a) == 1 and a[0]["severity"] == "major" and body["score"] <= CAPS["major"]
+    assert len(a) == 1 and a[0]["severity"] == "major" and body["score"] >= 50
 
 
 def test_single_major_floored_at_25():
-    """Major finding + heavy coverage penalties floors at 25, not Critical.
-    raw = 100 - 25(major) - 27(coverage) = 48 -> cap 50 -> raw 48...
-    -> force raw < 25 with more unmatched lines; floor rescues to 25."""
+    """Major finding + heavy coverage penalties caps at 75 (High Risk), not Critical."""
     f = Finding(rule_id="DDI-001", category="ddi", severity="major",
                 title="Drug-drug interaction: warfarin + aspirin",
                 mechanism="Additive bleeding risk", evidence_source="ddinter",
                 kb_version="1.0", reasoning_chain=[], ingredients=["warfarin", "aspirin"], data={})
     report = RulesReport(findings=[f], coverage={"status": "partial", "checks": []})
-    # 20 unmatched lines: raw = 100 - 25 - 60 = 15 -> floored to 25
+    # 20 unmatched lines: raw = 25 + 60 = 85 -> capped at 75 (High Risk)
     result = score(report, {"unmatched": 20, "review": 0})
-    assert result.score == 25
+    assert result.score == 75
     assert result.band == "High Risk"
-    assert any("floored" in l["detail"] for l in result.ledger)
+    assert any("cap" in l["source"] for l in result.ledger)
 
 def test_major_alone_caps_at_50():
-    """Guard: single major with FULL coverage stays at cap (50/Warning)."""
+    """Guard: single major with FULL coverage stays at floor (50/Warning)."""
     f = Finding(rule_id="DDI-001", category="ddi", severity="major",
                 title="Drug-drug interaction: warfarin + aspirin",
                 mechanism="Additive bleeding risk", evidence_source="ddinter",
@@ -130,7 +128,7 @@ def test_major_alone_caps_at_50():
     assert result.band == "Warning"
 
 def test_contraindicated_still_critical():
-    """Contraindicated finding(s) can reach 0/Critical — floor must NOT rescue."""
+    """Contraindicated finding(s) reach Critical (90-100)."""
     fs = [Finding(rule_id="ALLERGY-001", category="allergy", severity="contraindicated",
                   title="Allergy: penicillin", mechanism="IgE-mediated",
                   evidence_source="seed", kb_version="1.0", reasoning_chain=[],
@@ -138,8 +136,7 @@ def test_contraindicated_still_critical():
           for _ in range(3)]
     report = RulesReport(findings=fs, coverage={"status": "full", "checks": []})
     result = score(report, {"unmatched": 0, "review": 0})
-    # raw = 100 - 120 = 0, capped at 25 -> 0. Floor skips (worst != major).
-    assert result.score == 0
+    assert result.score == 100
     assert result.band == "Critical"
 
 

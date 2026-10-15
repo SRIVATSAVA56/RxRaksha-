@@ -30,8 +30,8 @@ QH_RE  = re.compile(r"^q(\d+)h$")          # q8h -> 3/day
 _FREQ_RAW = {
     "four times daily": 4, "thrice daily": 3, "twice daily": 2, "once daily": 1,
     "qid": 4, "tid": 3, "tds": 3, "bd": 2, "bid": 2, "od": 1, "qd": 1,
-    "once": 1, "daily": 1, "hs": 1, "nocte": 1, "at bedtime": 1,
-    "sos": None, "stat": 1, "as needed": None,
+    "once": 1, "daily": 1, "hs": 1, "nocte": 1, "at bedtime": 1, "at night": 1,
+    "on": 1, "prn": None, "sos": None, "stat": 1, "as needed": None,
     "weekly": round(1 / 7, 6),
 }
 # sort descending by token length so multi-word phrases matched before sub-phrases
@@ -64,11 +64,13 @@ def _parse_frequency(text: str):
         qh = QH_RE.fullmatch(t)
         if qh:
             return round(24 / int(qh.group(1)), 4), text.replace(tok, " ")
-    # 3. Multi-word then single-word FREQ phrases (longest first)
-    lower = text.lower()
+    # 3. Multi-word then single-word FREQ phrases (longest first) with word boundaries
     for phrase, val in FREQ_PHRASES:
-        if phrase in lower:
-            return val, lower.replace(phrase, " ")
+        pattern = r"\b" + re.escape(phrase) + r"\b"
+        m = re.search(pattern, text, flags=re.IGNORECASE)
+        if m:
+            remaining = text[:m.start()] + " " + text[m.end():]
+            return val, remaining
     return None, text
 
 
@@ -131,6 +133,14 @@ class NormalizedPrescription:
     lines: list
     daily_totals: dict   # drug_id -> {generic_name, total_daily_mg, unknown_dose_lines, sources}
     coverage: dict
+
+
+SYNONYMS = {
+    "aspirin": "acetylsalicylic acid",
+    "paracetamol": "acetaminophen",
+    "tylenol": "acetaminophen",
+    "asa": "acetylsalicylic acid",
+}
 
 
 class NormalizeEngine:
@@ -224,8 +234,17 @@ class NormalizeEngine:
             if rows := self._alias(key):
                 return Match("alias", key, 1.0, rows, "exact_alias",
                              inferred_strength_mg=inferred)
+            syn = SYNONYMS.get(key)
+            if syn:
+                if syn_rows := self._generic(syn):
+                    return Match("generic", syn, 1.0, syn_rows, "generic (synonym)")
+                if syn_rows := self._alias(syn):
+                    return Match("alias", syn, 1.0, syn_rows, "exact_alias")
         if rows := self._generic(norm(name)):
             return Match("generic", norm(name), 1.0, rows, "generic")
+        syn = SYNONYMS.get(norm(name))
+        if syn and (rows := self._generic(syn)):
+            return Match("generic", syn, 1.0, rows, "generic (synonym)")
 
         hits = get_close_matches(norm(name), self.vocab_keys, n=1, cutoff=self.cutoff)
         if not hits:

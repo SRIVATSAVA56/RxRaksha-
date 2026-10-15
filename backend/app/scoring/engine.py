@@ -1,12 +1,17 @@
 """Phase 4a: scoring engine.
 
-Findings -> 0-100 safety score. Higher = safer.
-Deduction-based with a hard cap for the worst finding:
-  - start at 100
-  - deduct per-finding weight by severity
-  - cap the score at the worst finding's ceiling (one 'contraindicated'
-    finding can never score above 25, no matter what else is true)
-The ledger records every deduction so the UI can answer "why this score?"
+Findings -> 0-100 risk score. Higher = more risk.
+Accumulation-based with a risk floor for the worst finding:
+  - start at 0 (safe)
+  - add per-finding weight by severity
+  - floor the risk score at the worst finding's threshold (e.g. moderate >= 25, major >= 50)
+  - major severity findings cap at 75 (High Risk), reserving Critical (90-100) for contraindicated
+Bands:
+  0-24:   Safe
+  25-49:  Caution
+  50-74:  Warning
+  75-89:  High Risk
+  90-100: Critical
 Deterministic: same findings -> same score.
 """
 from __future__ import annotations
@@ -14,20 +19,23 @@ from dataclasses import dataclass, field
 
 from app.rules.engine import Finding, RulesReport, SEVERITY_ORDER
 
-# per-finding deduction weight by severity
+# per-finding risk addition weight by severity
 WEIGHTS = {"contraindicated": 40, "major": 25, "moderate": 12, "minor": 5, "unknown": 4}
-# hard ceiling: worst finding present caps the final score
+# backward-compatibility caps reference
 CAPS    = {"contraindicated": 25, "major": 50, "moderate": 75, "minor": 90, "unknown": 95}
-# named bands (v1.4): (min_inclusive, label, action)
+# minimum risk floor based on worst severity present
+MIN_RISK = {"contraindicated": 75, "major": 50, "moderate": 25, "minor": 10, "unknown": 5}
+
+# named bands: (min_inclusive, label, action) in descending threshold order
 BANDS = [
-    (90, "Safe",      "No significant issues detected."),
-    (75, "Caution",   "Minor or moderate issues; review flagged items."),
+    (90, "Critical",  "Contraindicated combination or equivalent; hard stop."),
+    (75, "High Risk", "Major issues present; do not dispense without clinician override."),
     (50, "Warning",   "Significant interaction or risk; pharmacist review advised."),
-    (25, "High Risk", "Major issues present; do not dispense without clinician override."),
-    (0,  "Critical",  "Contraindicated combination or equivalent; hard stop."),
+    (25, "Caution",   "Minor or moderate issues; review flagged items."),
+    (0,  "Safe",      "No significant issues detected."),
 ]
 
-UNKNOWN_DEDUCTION = 3   # per unmatched / review line: incomplete data costs score
+UNKNOWN_DEDUCTION = 3   # per unmatched / review line: incomplete data adds risk
 
 
 @dataclass
@@ -47,50 +55,53 @@ def _band_for(score: int):
 
 
 def score(report: RulesReport, normalization_coverage: dict) -> ScoreResult:
-    ledger, deductions, worst = [], 0, 0   # `worst` = harshest severity rank seen
+    ledger, risk_points, worst = [], 0, 0   # `worst` = harshest severity rank seen
 
     for f in report.findings:
         w = WEIGHTS.get(f.severity, WEIGHTS["unknown"])
-        deductions += w
+        risk_points += w
         worst = max(worst, SEVERITY_ORDER.get(f.severity, 1))
-        ledger.append({"source": f.rule_id, "detail": f.title, "delta": -w})
+        ledger.append({"source": f.rule_id, "detail": f.title, "delta": w})
 
     # incomplete-data penalties from normalization coverage
     n_pen = normalization_coverage.get("unmatched", 0) + normalization_coverage.get("review", 0)
     if n_pen:
         d = n_pen * UNKNOWN_DEDUCTION
-        deductions += d
+        risk_points += d
         ledger.append({"source": "coverage",
-                       "detail": f"{n_pen} line(s) unmatched or needing review", "delta": -d})
+                       "detail": f"{n_pen} line(s) unmatched or needing review", "delta": d})
 
-    # checks that could not run -> no deduction, but recorded (fail-safe honesty)
+    # checks that could not run -> recorded honestly with 0 delta
     for c in report.coverage.get("checks", []):
         if not c.get("ran"):
             ledger.append({"source": f"check:{c['check']}",
                            "detail": c.get("reason", "check did not run"), "delta": 0})
 
-    raw = max(0, 100 - deductions)
+    raw = min(100, max(0, risk_points))
 
-    # hard cap from worst finding
-    cap_score, cap_reason = 100, None
+    # minimum risk floor from worst finding
+    floor_score, floor_reason = 0, None
     for sev, rank in SEVERITY_ORDER.items():
         if rank == worst and worst >= SEVERITY_ORDER["moderate"]:
-            cap_score = CAPS[sev]
-            cap_reason = f"score capped at {cap_score} due to worst severity '{sev}'"
+            floor_score = MIN_RISK.get(sev, 100 - CAPS[sev])
+            floor_reason = f"risk floored at {floor_score} due to worst severity '{sev}'"
             break
-    final = min(raw, cap_score)
-    if cap_reason and final == cap_score and raw > cap_score:
-        ledger.append({"source": "cap", "detail": cap_reason, "delta": cap_score - raw})
 
-    # floor: a 'major' worst finding is High Risk (25), not Critical —
-    # Critical (0-24) is reserved for multi-hazard stacks or contraindicated.
+    final = max(raw, floor_score)
+    if floor_reason and final == floor_score and raw < floor_score:
+        ledger.append({"source": "floor", "detail": floor_reason, "delta": floor_score - raw})
+
+    # ceiling for major: a 'major' worst finding stays in High Risk (<= 75), not Critical
+    # Critical (90-100) is reserved for contraindicated combinations or catastrophic multi-hazard stacks
     worst_sev = next((s for s, r in SEVERITY_ORDER.items() if r == worst), None)
-    if worst_sev == "major" and final < 25:
-        ledger.append({"source": "floor",
-                       "detail": "score floored at 25: major severity floor",
-                       "delta": 25 - final})
-        final = 25
+    if worst_sev == "major" and final > 75:
+        ledger.append({"source": "cap",
+                       "detail": "risk capped at 75: major severity ceiling",
+                       "delta": 75 - final})
+        final = 75
 
     band, action = _band_for(final)
+    applied_note = floor_reason if (floor_reason and final == floor_score and raw < floor_score) else None
+
     return ScoreResult(score=final, band=band, action=action, ledger=ledger,
-                       cap_applied=cap_reason if final == cap_score and raw > cap_score else None)
+                       cap_applied=applied_note)

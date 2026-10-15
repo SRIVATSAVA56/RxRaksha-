@@ -10,14 +10,15 @@ Endpoints:
 Pipeline: [OCR] -> normalize -> rules -> score -> report JSON.
 """
 from __future__ import annotations
-import io, sqlite3
+import hashlib, io, re, sqlite3
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.db.phase1_load import DEFAULT_DB, T_DRUG, T_INTER
 from app.normalize.engine import NormalizeEngine, NormalizedPrescription
@@ -25,6 +26,7 @@ from app.rules.engine import RulesEngine, RulesReport, Finding
 from app.scoring.engine import score as score_report
 from app.explain.templates import explain_findings, explain_summary
 from app.explain.summarizer import generate, attach_verified, Verification
+from app.explain.llm_client import enabled as llm_enabled, LLMClient, _clean_patient_text
 from app.auth import router as auth_router, get_current_user
 from app.vault import router as vault_router
 
@@ -79,6 +81,7 @@ except Exception:
 class PatientProfile(BaseModel):
     age: int | None = 58
     weight_kg: float | None = 72.0
+    gender: str | None = "unknown"
     allergies: list[str] = Field(default_factory=list)
     allergy_state: str = "unknown"
     kidney_impairment: bool = False
@@ -93,13 +96,187 @@ class SummaryRequest(BaseModel):
     verifier_id: str | None = None    # if absent -> draft returned, NOT attached
     method: str = "manual_review"
 
+VALID_SEVERITIES = {"contraindicated", "major", "moderate", "minor", "unknown"}
+SAFE_STR_REGEX = re.compile(r"^[a-zA-Z0-9\s\-_./()]+$")
+ALLOWED_DATA_KEYS = {
+    "pair", "severity", "sources", "total_daily_mg", "allergies",
+    "conditions", "matched", "limit_mg", "unknown_lines", "overage_mg"
+}
+
+class ExplainRequest(BaseModel):
+    category: str
+    severity: str
+    ingredients: list[str]
+    evidence_source: str
+    kb_version: str
+    data: dict | None = None
+    age: int | None = None
+    audience: str = "clinician"
+    gender: str | None = None
+
+    @field_validator("severity")
+    @classmethod
+    def validate_severity(cls, v: str) -> str:
+        if v.lower() not in VALID_SEVERITIES:
+            raise ValueError(f"Invalid severity: {v}")
+        return v.lower()
+
+    @field_validator("ingredients")
+    @classmethod
+    def validate_ingredients(cls, v: list[str]) -> list[str]:
+        if not (1 <= len(v) <= 6):
+            raise ValueError("ingredients must have between 1 and 6 items")
+        for item in v:
+            if not (1 <= len(item) <= 80):
+                raise ValueError("ingredient must be 1 to 80 characters")
+            if not SAFE_STR_REGEX.match(item):
+                raise ValueError("ingredient contains invalid characters")
+        return v
+
+    @field_validator("evidence_source", "kb_version")
+    @classmethod
+    def validate_safe_str(cls, v: str) -> str:
+        if not (1 <= len(v) <= 80):
+            raise ValueError("Must be 1 to 80 characters")
+        if not SAFE_STR_REGEX.match(v):
+            raise ValueError("Contains invalid characters")
+        return v
+
+    @field_validator("age")
+    @classmethod
+    def validate_age(cls, v: int | None) -> int | None:
+        if v is not None and not (0 <= v <= 120):
+            raise ValueError("age must be between 0 and 120")
+        return v
+
+    @field_validator("audience")
+    @classmethod
+    def validate_audience(cls, v: str) -> str:
+        v_norm = (v or "").strip().lower()
+        if v_norm not in {"clinician", "patient"}:
+            raise ValueError("audience must be 'clinician' or 'patient'")
+        return v_norm
+
+    @field_validator("gender")
+    @classmethod
+    def validate_gender(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v_str = v.strip()
+        if not (1 <= len(v_str) <= 30) or not SAFE_STR_REGEX.match(v_str):
+            raise ValueError("gender contains invalid characters")
+        return v_str
+
+EXPLAIN_CACHE: OrderedDict[str, dict] = OrderedDict()
+
+from app.normalize.engine import Ingredient, NormalizedLine
+from app.explain.llm_resolver import resolve_unknowns
+import logging
+
+logger = logging.getLogger("rxraksha")
+
 # ---------- helpers ----------
 
 def _run_pipeline(lines: list[str], patient: dict) -> dict:
     norm_rx: NormalizedPrescription = state["normalizer"].normalize_prescription(lines)
+
+    # LLM Fallback Resolver step for any unmatched lines
+    llm_findings = []
+    unmatched_lines = [ln.raw for ln in norm_rx.lines if ln.status == "unmatched"]
+    if unmatched_lines:
+        resolved_ingredients = [
+            i.generic_name for ln in norm_rx.lines if ln.status != "unmatched"
+            for i in ln.ingredients if i.generic_name
+        ]
+        try:
+            llm_res = resolve_unknowns(unmatched_lines, resolved_ingredients)
+            needs_rerun = False
+            for item in llm_res.get("resolved", []):
+                ent_line = item.get("entered_line", "").strip()
+                norm_ing = item.get("ingredient")
+                str_mg = item.get("strength_mg")
+                daily_mg = item.get("daily_mg")
+
+                matched = False
+                if norm_ing:
+                    # RETRY deterministic KB lookup with normalized ingredient
+                    m = state["normalizer"].resolve(norm_ing, str_mg)
+                    if m:
+                        for idx, ln in enumerate(norm_rx.lines):
+                            if ln.raw.strip() == ent_line and ln.status == "unmatched":
+                                ings = []
+                                for drug_id, comp_str in m.rows:
+                                    s = str_mg or comp_str or (ings and ings[0].strength_mg) or None
+                                    d = daily_mg or s
+                                    ings.append(Ingredient(
+                                        drug_id=drug_id,
+                                        generic_name=state["normalizer"]._name_of(drug_id),
+                                        strength_mg=s,
+                                        daily_mg=d,
+                                        source_alias=f"{norm_ing} (LLM-normalized)",
+                                        match_type="generic (LLM-normalized)",
+                                        confidence=m.confidence,
+                                        needs_review=False
+                                    ))
+                                norm_rx.lines[idx] = NormalizedLine(
+                                    raw=ln.raw,
+                                    parsed=ln.parsed,
+                                    ingredients=ings,
+                                    status="ok"
+                                )
+                                needs_rerun = True
+                                matched = True
+                                break
+
+                # Only if STILL unresolved after retry: collect LLM findings
+                if not matched and item.get("interactions"):
+                    llm_findings.append({
+                        "entered_line": ent_line,
+                        "ingredient": norm_ing,
+                        "strength_mg": str_mg,
+                        "daily_mg": daily_mg,
+                        "confidence": item.get("confidence", "low"),
+                        "sources": item.get("sources", []),
+                        "interactions": item.get("interactions", []),
+                        "status": "AI-RESOLVED — UNVERIFIED",
+                        "source": "llm-web-search"
+                    })
+
+            if needs_rerun:
+                from collections import Counter
+                totals = {}
+                for ln in norm_rx.lines:
+                    for ing in ln.ingredients:
+                        e = totals.setdefault(ing.drug_id, {
+                            "generic_name": ing.generic_name,
+                            "total_daily_mg": 0.0,
+                            "unknown_dose_lines": 0,
+                            "sources": []
+                        })
+                        e["sources"].append(ing.source_alias)
+                        if ing.daily_mg is None:
+                            e["unknown_dose_lines"] += 1
+                        else:
+                            e["total_daily_mg"] += ing.daily_mg
+                st = Counter(l.status for l in norm_rx.lines)
+                norm_rx.coverage = {
+                    "lines_total": len(norm_rx.lines),
+                    "ok": st.get("ok", 0),
+                    "review": st.get("review", 0),
+                    "unmatched": st.get("unmatched", 0),
+                    "doses_known": sum(1 for l in norm_rx.lines for i in l.ingredients if i.daily_mg is not None),
+                    "doses_unknown": sum(1 for l in norm_rx.lines for i in l.ingredients if i.daily_mg is None),
+                }
+                norm_rx.daily_totals = totals
+        except Exception as e:
+            logger.warning("LLM fallback resolver failed: %s", e)
+
     report: RulesReport = state["rules"].analyze(norm_rx, patient)
     result = score_report(report, norm_rx.coverage)
-    return _serialize(norm_rx, report, result, ocr_meta=None)
+    out = _serialize(norm_rx, report, result, ocr_meta=None)
+    out["patient_context"] = patient
+    out["llm_findings"] = llm_findings
+    return out
 
 def _finding_json(f: Finding) -> dict:
     return {"rule_id": f.rule_id, "category": f.category, "severity": f.severity,
@@ -145,7 +322,94 @@ def health():
     conn = state["conn"]
     return {"status": "ok",
             "drugs": conn.execute(f"SELECT COUNT(*) FROM {T_DRUG}").fetchone()[0],
-            "interactions": conn.execute(f"SELECT COUNT(*) FROM {T_INTER}").fetchone()[0]}
+            "interactions": conn.execute(f"SELECT COUNT(*) FROM {T_INTER}").fetchone()[0],
+            "ai_explain": llm_enabled()}
+
+@app.post("/analyze/explain")
+def analyze_explain(req: ExplainRequest, current_user: dict = Depends(get_current_user)):
+    if req.severity == "unknown":
+        unknown_text = (
+            "There is no known risk rating for this medicine combination in the safety database. Please speak with your doctor or pharmacist."
+            if req.audience == "patient"
+            else "The knowledge base lists this pair with no severity rating. No further information is available."
+        )
+        return {
+            "ai_explanation": {
+                "text": unknown_text,
+                "model": None,
+                "verified": False,
+                "source": "template",
+                "audience": req.audience,
+                "label": "No AI used."
+            }
+        }
+
+    if not llm_enabled():
+        raise HTTPException(status_code=404, detail="AI explanation is not enabled")
+
+    clean_data = {}
+    if req.data and isinstance(req.data, dict):
+        for k, v in req.data.items():
+            if k in ALLOWED_DATA_KEYS:
+                if isinstance(v, (int, float)):
+                    clean_data[k] = v
+                elif isinstance(v, str) and len(v) <= 60:
+                    clean_data[k] = v
+
+    if req.audience == "patient":
+        age_str = str(req.age) if req.age is not None else "unspecified"
+        gender_str = req.gender if req.gender else "unspecified"
+        drugs_str = " and ".join(req.ingredients)
+        facts = (
+            f"Patient: age {age_str}, {gender_str}\n"
+            f"Finding: {drugs_str}, severity: {req.severity}\n"
+            f"Evidence: {req.evidence_source} (KB {req.kb_version})"
+        )
+    else:
+        facts_lines = [
+            f"Finding type: {req.category}",
+            f"Drugs: {', '.join(req.ingredients)}",
+            f"Severity per {req.evidence_source}: {req.severity}",
+            f"Knowledge base: {req.kb_version}",
+        ]
+        if clean_data:
+            details_str = ", ".join(f"{k}={v}" for k, v in sorted(clean_data.items()))
+            facts_lines.append(f"Details: {details_str}")
+        else:
+            facts_lines.append("Details: none")
+
+        if req.age is not None:
+            facts_lines.append(f"Patient age: {req.age}")
+
+        facts = "\n".join(facts_lines)
+
+    prompt_hash = hashlib.sha256(f"{req.audience}:{facts}".encode()).hexdigest()
+    if prompt_hash in EXPLAIN_CACHE:
+        return EXPLAIN_CACHE[prompt_hash]
+
+    try:
+        draft = generate(facts, llm_client=LLMClient(audience=req.audience))
+    except Exception:
+        raise HTTPException(status_code=503, detail="AI explanation unavailable")
+
+    text = draft.text
+    if req.audience == "patient":
+        text = _clean_patient_text(text)
+
+    res_payload = {
+        "ai_explanation": {
+            "text": text,
+            "model": draft.model,
+            "verified": False,
+            "source": "llm",
+            "audience": req.audience,
+            "label": "AI-generated from model knowledge. Not from DDInter. Unverified."
+        }
+    }
+    if len(EXPLAIN_CACHE) >= 200:
+        EXPLAIN_CACHE.popitem(last=False)
+    EXPLAIN_CACHE[prompt_hash] = res_payload
+    return res_payload
 
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest, current_user: dict = Depends(get_current_user)):

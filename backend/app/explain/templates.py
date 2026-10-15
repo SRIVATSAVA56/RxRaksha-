@@ -63,7 +63,7 @@ def explain_summary(report: RulesReport, result: ScoreResult,
     ran = [c["check"] for c in report.coverage.get("checks", []) if c.get("ran")]
     skipped = [c["check"] for c in report.coverage.get("checks", []) if not c.get("ran")]
     parts = [
-        f"Safety score {result.score}/100 ({result.band}).",
+        f"Risk score {result.score}/100 ({result.band}).",
         f"{n} finding(s) across {len(ran)} completed checks ({', '.join(ran) or 'none'}).",
     ]
     if n:
