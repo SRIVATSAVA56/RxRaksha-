@@ -26,11 +26,12 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) — click **"Analyze prescri
 ## Verification
 ```bash
 cd backend
-python -m pytest   # 52 tests, ~4s
+python -m pytest   # 75 tests passing
 ```
 
 ## Demo Cases
-1. **Warf + Crocin + Dolo-650** -> `75/Caution` (Cap from worst severity: moderate caps at 75)
-2. **Amoxicillin + penicillin allergy** -> `25/High Risk` (Contraindicated cap)
-3. **Aspirin 75 + unknown brand** -> `Partial coverage badge` (Honest accounting: unknowns cost points)
-4. **Warfarin + aspirin + messy lines** -> `25/High Risk, floored` (Major finding + degraded data floors at 25)
+1. **Warf 5mg OD + Crocin 500mg + Dolo-650** -> `25/Caution` (Moderate DDI + duplicate therapy)
+2. **Augmentin 625 TDS + Penicillin Allergy** -> `100/Critical` (Contraindicated allergy clash)
+3. **Thyronorm 100mcg OD** -> `0/Safe` (Clean baseline, zero findings)
+4. **Warfarin + Aspirin + Metoprolol + Omeprazole** -> `75/High Risk` (Major bleeding hazard stack)
+
